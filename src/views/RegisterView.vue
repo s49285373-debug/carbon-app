@@ -14,7 +14,10 @@ const isSuccess = ref(false)
 // 點擊註冊按鈕觸發的函式
 const handleRegister = async () => {
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/register', {
+    // 自動讀取 Vercel 的環境變數，若在本地則預設連到 127.0.0.1:8000
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+
+    const response = await fetch(`${apiBaseUrl}/api/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -53,7 +56,7 @@ const handleRegister = async () => {
     <!-- 中間白色背景長方形卡片容器 -->
     <div class="register-card">
       
-      <!-- 標題改為「註冊」 -->
+      <!-- 標題 -->
       <h2 class="system-title">
         註冊
       </h2>
@@ -95,6 +98,11 @@ const handleRegister = async () => {
       <div v-if="message" :class="isSuccess ? 'msg-success' : 'msg-error'" class="msg-box">
         {{ message }}
       </div>
+
+      <!-- 返回登入連結 -->
+      <div class="login-link">
+        <router-link to="/login">已有帳號？返回登入</router-link>
+      </div>
     </div>
   </div>
 </template>
@@ -106,7 +114,7 @@ const handleRegister = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-image: url('/src/assets/forest-bg.jpg');
+  background-image: url('@/assets/forest-bg.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -206,5 +214,21 @@ const handleRegister = async () => {
   color: #b91c1c;
   background-color: #fef2f2;
   border-color: #fecaca;
+}
+
+/* 返回登入連結 */
+.login-link {
+  margin-top: 1.2rem;
+  text-align: center;
+}
+
+.login-link a {
+  color: #059669;
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+.login-link a:hover {
+  text-decoration: underline;
 }
 </style>
