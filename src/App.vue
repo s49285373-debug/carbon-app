@@ -1,7 +1,7 @@
-<script setup>
-import RegisterView from './views/RegisterView.vue'
-</script>
-
 <template>
-  <RegisterView />
+  <!-- 根據網址自動切換顯示 LoginView 或 RegisterView -->
+  <router-view />
 </template>
+
+<script setup>
+</script>
