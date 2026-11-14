@@ -115,6 +115,7 @@ const router = useRouter()
 const nickname = ref('使用者')
 
 onMounted(() => {
+  // 從 localStorage 讀取登入時儲存的暱稱，若有則動態帶入
   const savedNickname = localStorage.getItem('user_nickname')
   if (savedNickname) {
     nickname.value = savedNickname
@@ -122,7 +123,9 @@ onMounted(() => {
 })
 
 const handleLogout = () => {
+  // 登出時清除儲存的資料
   localStorage.removeItem('user_nickname')
+  localStorage.removeItem('user_phone')
   alert('已成功登出')
   router.push('/login')
 }

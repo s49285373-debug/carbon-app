@@ -55,19 +55,40 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import axios from 'axios'
 
 const router = useRouter()
 const phone = ref('')
 const password = ref('')
 
-const handleLogin = () => {
-  console.log('送出登入:', { phone: phone.value, password: password.value })
+const handleLogin = async () => {
+  try {
+    console.log('送出登入:', { phone: phone.value, password: password.value })
 
-  // 1. 將測試或註冊對應的暱稱存入 localStorage
-  localStorage.setItem('user_nickname', '嗨嗨')
+    // 動態讀取環境變數的後端網址（支援 Railway 雲端或本機）
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
-  // 2. 直接跳轉至純綠色背景的碳帳本儀表板畫面
-  router.push('/dashboard')
+    // 呼叫後端登入 API
+    const response = await axios.post(`${API_BASE_URL}/api/login`, {
+      phone: phone.value,
+      password: password.value
+    })
+
+    // 取得後端回傳的真實暱稱（支援多種常見的欄位回傳格式）
+    const userNickname = response.data.nickname || response.data.user_nickname || response.data.user?.nickname || '使用者'
+
+    // 將真實從資料庫拿到的暱稱與帳號存入 localStorage
+    localStorage.setItem('user_nickname', userNickname)
+    localStorage.setItem('user_phone', phone.value)
+
+    alert('登入成功！')
+    // 成功後跳轉至儀表板畫面
+    router.push('/dashboard')
+
+  } catch (error) {
+    console.error('登入失敗:', error)
+    alert('登入失敗，請檢查手機號碼或密碼是否正確')
+  }
 }
 </script>
 
