@@ -55,7 +55,6 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
 
 const router = useRouter()
 const phone = ref('')
@@ -68,14 +67,26 @@ const handleLogin = async () => {
     // 動態讀取環境變數的後端網址（支援 Railway 雲端或本機）
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
-    // 呼叫後端登入 API
-    const response = await axios.post(`${API_BASE_URL}/api/login`, {
-      phone: phone.value,
-      password: password.value
+    // 使用 JavaScript 內建的 fetch 發送登入請求
+    const response = await fetch(`${API_BASE_URL}/api/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        phone: phone.value,
+        password: password.value
+      })
     })
 
-    // 取得後端回傳的真實暱稱（支援多種常見的欄位回傳格式）
-    const userNickname = response.data.nickname || response.data.user_nickname || response.data.user?.nickname || '使用者'
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.detail || '登入失敗')
+    }
+
+    // 取得後端回傳的真實暱稱
+    const userNickname = data.nickname || data.user_nickname || data.user?.nickname || '使用者'
 
     // 將真實從資料庫拿到的暱稱與帳號存入 localStorage
     localStorage.setItem('user_nickname', userNickname)
