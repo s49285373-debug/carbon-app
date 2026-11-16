@@ -15,10 +15,13 @@
         <div class="form-group">
           <label class="form-label">帳號</label>
           <input 
-            v-model="phone" 
-            type="text" 
+            :value="phone" 
+            @input="handlePhoneInput" 
+            type="tel" 
             required
-            placeholder="請輸入手機號碼" 
+            maxlength="10"
+            inputmode="numeric"
+            placeholder="請輸入手機號碼 (例如: 0912345678)" 
             class="form-input"
           />
         </div>
@@ -60,7 +63,23 @@ const router = useRouter()
 const phone = ref('')
 const password = ref('')
 
+// 限制手機欄位只能輸入數字，並自動截斷至 10 碼
+const handlePhoneInput = (e) => {
+  let value = e.target.value.replace(/\D/g, '')
+  if (value.length > 10) {
+    value = value.slice(0, 10)
+  }
+  phone.value = value
+}
+
 const handleLogin = async () => {
+  // 強制驗證台灣手機號碼格式 (09 開頭，後面 8 位數字)
+  const phoneRegex = /^09\d{8}$/
+  if (!phoneRegex.test(phone.value)) {
+    alert('手機號碼格式錯誤！請輸入以 09 開頭且共 10 碼的數字（例如: 0912345678）')
+    return
+  }
+
   try {
     console.log('送出登入:', { phone: phone.value, password: password.value })
 

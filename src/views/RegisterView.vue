@@ -11,8 +11,25 @@ const nickname = ref('')
 const message = ref('')
 const isSuccess = ref(false)
 
+// 限制手機欄位只能輸入數字，並自動截斷至 10 碼
+const handlePhoneInput = (e) => {
+  let value = e.target.value.replace(/\D/g, '')
+  if (value.length > 10) {
+    value = value.slice(0, 10)
+  }
+  phone.value = value
+}
+
 // 點擊註冊按鈕觸發的函式
 const handleRegister = async () => {
+  // 強制驗證台灣手機號碼格式 (09 開頭，後面 8 位數字)
+  const phoneRegex = /^09\d{8}$/
+  if (!phoneRegex.test(phone.value)) {
+    isSuccess.value = false
+    message.value = '手機號碼格式錯誤！請輸入以 09 開頭且共 10 碼的數字（例如: 0912345678）'
+    return
+  }
+
   try {
     // 自動讀取 Vercel 的環境變數，若在本地則預設連到 127.0.0.1:8000
     const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
@@ -65,7 +82,15 @@ const handleRegister = async () => {
         <!-- 手機號碼欄位 -->
         <div class="form-group">
           <label for="phone" class="form-label">手機號碼 (帳號)</label>
-          <input v-model="phone" id="phone" name="phone" type="text" required 
+          <input 
+            :value="phone" 
+            @input="handlePhoneInput" 
+            id="phone" 
+            name="phone" 
+            type="tel" 
+            required 
+            maxlength="10"
+            inputmode="numeric"
             class="form-input" 
             placeholder="請輸入手機號碼 (例如: 0912345678)">
         </div>
@@ -99,10 +124,6 @@ const handleRegister = async () => {
         {{ message }}
       </div>
 
-      <!-- 返回登入連結 -->
-      <div class="login-link">
-        <router-link to="/login">已有帳號？返回登入</router-link>
-      </div>
     </div>
   </div>
 </template>
@@ -114,7 +135,7 @@ const handleRegister = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-image: url('@/assets/forest-bg.jpg');
+  background-image: url('/src/assets/forest-bg.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -214,21 +235,5 @@ const handleRegister = async () => {
   color: #b91c1c;
   background-color: #fef2f2;
   border-color: #fecaca;
-}
-
-/* 返回登入連結 */
-.login-link {
-  margin-top: 1.2rem;
-  text-align: center;
-}
-
-.login-link a {
-  color: #059669;
-  text-decoration: none;
-  font-size: 0.85rem;
-}
-
-.login-link a:hover {
-  text-decoration: underline;
 }
 </style>
