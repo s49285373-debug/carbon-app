@@ -566,11 +566,6 @@ const currentTab = ref('home')
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
-// 常見賣方統編店名對照
-const SELLER_NAME_MAP = {
-  '60826810': '木棉花國際(股)公司台中一中營業所'
-}
-
 // 原生相機與掃描狀態
 const viewportRef = ref(null)
 const videoRef = ref(null)
@@ -773,9 +768,6 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       }
       if (/^\d{8}$/.test(seller)) {
         result.sellerBan = seller
-        if (SELLER_NAME_MAP[seller]) {
-          result.merchantName = SELLER_NAME_MAP[seller]
-        }
       }
     }
 
@@ -802,7 +794,7 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
 }
 
 /**
- * 若掃到右側延伸 QR（** 開頭），將新明細併入最新或同期間發票，避免開出空白 TWD 0 紀錄
+ * 若掃到右側延伸 QR（** 開頭），將新明細併入最新發票，避免開出空白 TWD 0 紀錄
  */
 const mergeExtensionItemsToLatestInvoice = (extItems) => {
   const target = lastExtractedInvoice.value
@@ -858,7 +850,6 @@ const handleDecodedQrText = async (decodedText) => {
 
   const parsedQr = parseTaiwanInvoiceQr(cleanText)
 
-  // 右側 QR 延伸明細：直接補齊到現有發票，不另建 TWD 0 發票
   if (parsedQr.isExtensionOnly || cleanText.startsWith('**')) {
     mergeExtensionItemsToLatestInvoice(parsedQr.items)
     return
@@ -1234,7 +1225,6 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
   const merchantName =
     (!isGenericBackendMerchant && rawBackendMerchant) ||
     inputMeta.merchantName ||
-    (sellerBan && SELLER_NAME_MAP[sellerBan]) ||
     (sellerBan ? `賣方 ${sellerBan}` : `預設${categoryName}推估（${cleanNum.slice(0, 2)}字軌）`)
 
   const inputDateClean = (inputMeta.invoiceDate || '').trim()
@@ -1260,8 +1250,8 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
   const rawBackendItems = Array.isArray(backendData.items) ? backendData.items : []
   const validBackendItems = rawBackendItems.filter((it) => {
     const name = String(it.item_name || '').trim()
-    const amt = Number(it.amount || 0)
-    return name.length > 0 && !/^\d+$/.test(name) && amt > 0
+    const amt = Number(it.amount)
+    return name.length > 0 && !/^\d+$/.test(name) && Number.isFinite(amt) && amt !== 0
   })
 
   const inputItems = Array.isArray(inputMeta.items) ? inputMeta.items : []
