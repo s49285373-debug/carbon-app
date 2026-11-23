@@ -539,10 +539,11 @@ const buildSummaryTitle = (items = [], merchantName = '') => {
   return `${merchantName || '一般消費'}（無逐項明細）`
 }
 
+// 通用的 Base64 / UTF-8 / Big5 自動解碼函式（不寫死任何商品名稱）
 const decodeTextSafely = (str) => {
   const cleaned = String(str || '').trim()
   if (!cleaned) return ''
-  if (cleaned.length >= 8 && cleaned.length % 4 === 0 && /^[A-Za-z0-9+/=]+$/.test(cleaned)) {
+  if (cleaned.length >= 4 && cleaned.length % 4 === 0 && /^[A-Za-z0-9+/=]+$/.test(cleaned)) {
     try {
       const binary = atob(cleaned)
       const bytes = new Uint8Array(binary.length)
@@ -551,8 +552,8 @@ const decodeTextSafely = (str) => {
       }
       for (const enc of ['utf-8', 'big5']) {
         try {
-          const decoded = new TextDecoder(enc, { fatal: false }).decode(bytes).trim()
-          if (decoded && decoded.includes(':')) {
+          const decoded = new TextDecoder(enc, { fatal: true }).decode(bytes).trim()
+          if (decoded && !/[\x00-\x08\x0E-\x1F\uFFFD]/.test(decoded)) {
             return decoded
           }
         } catch {
@@ -1370,14 +1371,22 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
   )
 
   const rawBackendItems = Array.isArray(backendData.items) ? backendData.items : []
-  const validBackendItems = rawBackendItems.filter((it) => {
-    const name = String(it.item_name || '').trim()
-    const amt = Number(it.amount)
-    const isMasked = !name || /^\*+$/.test(name) || /^-?\d+(\.\d+)?$/.test(name)
-    return !isMasked && Number.isFinite(amt) && amt !== 0
-  })
+  const validBackendItems = rawBackendItems
+    .map((it) => ({
+      ...it,
+      item_name: decodeTextSafely(it.item_name || '').trim()
+    }))
+    .filter((it) => {
+      const name = it.item_name
+      const amt = Number(it.amount)
+      const isMasked = !name || /^\*+$/.test(name) || /^-?\d+(\.\d+)?$/.test(name)
+      return !isMasked && Number.isFinite(amt) && amt !== 0
+    })
 
-  const inputItems = Array.isArray(inputMeta.items) ? inputMeta.items : []
+  const inputItems = (Array.isArray(inputMeta.items) ? inputMeta.items : []).map((it) => ({
+    ...it,
+    item_name: decodeTextSafely(it.item_name || '').trim()
+  }))
   const items = inputItems.length > 0 ? [...inputItems] : mergeUniqueItems(validBackendItems, [])
   const rawItemsSum = Number(
     items.reduce((s, it) => s + Number(it.amount || 0), 0).toFixed(2)
