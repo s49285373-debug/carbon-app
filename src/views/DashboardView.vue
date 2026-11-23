@@ -504,7 +504,7 @@ let pendingRightAt = 0
 let mergeFlushTimer = null
 let rightFallbackTimer = null
 const RIGHT_QR_HOLD_MS = 6000
-const LEFT_WAIT_RIGHT_MS = 1200
+const LEFT_WAIT_RIGHT_MS = 1800
 
 const periods = ['115年07–08月', '115年09–10月', '115年11–12月']
 const currentPeriodIndex = ref(2)
@@ -750,6 +750,25 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
         i += 1
       }
     }
+
+    // 寬鬆備援：若嚴格三元組未抓出品項，嘗試配對「品名 + 金額」
+    if (parsedItems.length === 0 && tokens.length >= 2) {
+      for (let j = 0; j + 1 < tokens.length; j++) {
+        const name = decodeTextSafely(tokens[j] || '').trim()
+        const amt = Number(String(tokens[j + 1] || '').trim())
+        const isMasked = !name || /^\*+$/.test(name) || /^-?\d+(\.\d+)?$/.test(name)
+        if (!isMasked && Number.isFinite(amt) && amt !== 0 && Math.abs(amt) < 1000000) {
+          parsedItems.push({
+            item_name: name,
+            quantity: 1,
+            unit_price: amt,
+            amount: amt
+          })
+          j += 1
+        }
+      }
+    }
+
     return parsedItems
   }
 
@@ -887,12 +906,14 @@ const scheduleFlushForLeftQr = () => {
     return
   }
 
+  successToastMsg.value = `已掃描 ${pendingLeftQr.parsed.invoiceNumber}，可靠近右 QR 補明細`
+
   mergeFlushTimer = setTimeout(() => {
+    successToastMsg.value = ''
     flushPendingInvoice()
   }, LEFT_WAIT_RIGHT_MS)
 }
 
-// 一次處理同一幀抓到的所有 QR 文字：若同時含左碼與右碼，直接合併建檔
 const handleFrameQrTexts = async (rawTexts = []) => {
   const uniqueTexts = Array.from(
     new Set((rawTexts || []).map((t) => String(t || '').trim()).filter(Boolean))
@@ -913,7 +934,6 @@ const handleFrameQrTexts = async (rawTexts = []) => {
     }
   }
 
-  // 若同一幀同時掃到左碼與右碼，直接合併處理
   if (leftEntries.length > 0 && rightEntries.length > 0) {
     clearPendingTimersOnly()
     const mainLeft = leftEntries[0]
@@ -958,7 +978,6 @@ const handleFrameQrTexts = async (rawTexts = []) => {
     return
   }
 
-  // 僅掃到右碼
   if (rightEntries.length > 0) {
     for (const r of rightEntries) {
       pendingRightItems = mergeUniqueItems(pendingRightItems, r.parsed.items || [])
@@ -980,7 +999,6 @@ const handleFrameQrTexts = async (rawTexts = []) => {
     return
   }
 
-  // 僅掃到左碼
   if (leftEntries.length > 0) {
     const mainLeft = leftEntries[0]
     const exists = invoiceList.value.some(
@@ -1131,7 +1149,6 @@ const startNativeQrLoop = () => {
     }
 
     try {
-      // 同時裁切左半邊與右半邊，盡量在同幀抓齊雙 QR Code
       const hasLeft = hits.some((h) => !h.rawValue.startsWith('**'))
       const hasRight = hits.some((h) => h.rawValue.startsWith('**'))
 
