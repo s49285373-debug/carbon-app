@@ -195,9 +195,19 @@
             <button class="scanner-text-btn" @click="openManualModal">手動輸入</button>
           </div>
 
-          <!-- 中間黑色相機取景與對焦區 -->
-          <div class="camera-viewport">
+          <!-- 中間滿版相機取景與動態 QR 綠框定位區 -->
+          <div class="camera-viewport" ref="viewportRef">
             <div id="qr-camera-reader" class="qr-video-container"></div>
+
+            <!-- 即時追蹤 QR Code 實際座標的動態綠色方框層 -->
+            <div class="qr-bounding-layer">
+              <div
+                v-for="(box, idx) in detectedBoxes"
+                :key="idx"
+                class="qr-live-green-box"
+                :style="box.style"
+              ></div>
+            </div>
 
             <div class="camera-overlay-content">
               <div class="camera-controls-top">
@@ -219,17 +229,29 @@
                 </button>
               </div>
 
-              <div class="focus-frame" :class="{ 'is-detected': qrDetected }">
+              <!-- 中央白色四角大對焦框（容納整張電子發票證明聯） -->
+              <div class="focus-frame" :class="{ 'is-detected': detectedBoxes.length > 0 }">
                 <span class="corner top-left"></span>
                 <span class="corner top-right"></span>
                 <span class="corner bottom-left"></span>
                 <span class="corner bottom-right"></span>
 
-                <div class="camera-hint-box" v-if="qrDetected || isExtracting || scanError || !isCameraRunning">
-                  <p v-if="qrDetected" class="detected-text">✅ 已偵測到 QR Code，正在解析發票...</p>
-                  <p v-else-if="isExtracting" class="hint-text">⏳ 正在解析發票資訊、計算碳足跡與隱形碳成本...</p>
+                <!-- 類似圖片中的紅色膠囊提示：「! 發票已存在」 -->
+                <div v-if="duplicateAlertMsg" class="duplicate-pill-toast">
+                  <span class="dup-icon">!</span>
+                  <span>{{ duplicateAlertMsg }}</span>
+                </div>
+
+                <!-- 掃描成功即時提示膠囊 -->
+                <div v-else-if="successToastMsg" class="success-pill-toast">
+                  <span>✅ {{ successToastMsg }}</span>
+                </div>
+
+                <!-- 載入中／錯誤提示 -->
+                <div class="camera-hint-box" v-else-if="isExtracting || scanError || !isCameraRunning">
+                  <p v-if="isExtracting" class="hint-text">⏳ 正在解析發票與碳足跡...</p>
                   <div v-else-if="scanError" class="error-hint-box">
-                    <p class="error-text">⚠️ {{ cameraStatusMsg || '無法啟動相機或辨識失敗，請確認 HTTPS 與相機權限或點右上角「手動輸入」' }}</p>
+                    <p class="error-text">⚠️ {{ cameraStatusMsg || '無法啟動相機，請確認 HTTPS 與權限或點「手動輸入」' }}</p>
                     <button class="retry-btn" @click="startCameraScanner">重新開啟相機</button>
                   </div>
                   <p v-else class="hint-text">正在啟動相機，請稍候...</p>
@@ -313,7 +335,7 @@
             </div>
 
             <p class="scanner-footer-note">
-              對準紙本電子發票 QR Code 或點右上角「手動輸入」填入發票資訊；有逐項明細時逐項計算，無明細時套用預設類別係數推估。
+              將整張電子發票對準中央對焦框，系統會自動以綠框鎖定 QR Code；有逐項明細時逐項計算，無明細時套用預設類別係數推估。
             </p>
 
             <div class="demo-actions">
@@ -531,6 +553,7 @@ const currentTab = ref('home')
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
 // 掃描器與相機狀態
+const viewportRef = ref(null)
 const flashOn = ref(false)
 const soundOn = ref(true)
 const continuousScan = ref(true)
@@ -541,7 +564,14 @@ const lastExtractedInvoice = ref(null)
 const html5QrInstance = ref(null)
 const isCameraRunning = ref(false)
 const cameraStatusMsg = ref('')
-const qrDetected = ref(false)
+
+// 動態綠框座標與「發票已存在」提示狀態
+const detectedBoxes = ref([])
+const duplicateAlertMsg = ref('')
+const successToastMsg = ref('')
+let boxTrackTimer = null
+let lastRawScannedText = ''
+let lastRawScannedAt = 0
 
 // 手動輸入表單狀態（對應：發票類型、發票日期、字軌2碼、號碼8碼、發票金額、隨機碼4碼）
 const showManualModal = ref(false)
@@ -584,7 +614,74 @@ const openManualModal = () => {
   showManualModal.value = true
 }
 
+const stopQrBoxTracker = () => {
+  if (boxTrackTimer) {
+    clearInterval(boxTrackTimer)
+    boxTrackTimer = null
+  }
+  detectedBoxes.value = []
+}
+
+// 利用原生 BarcodeDetector 即時偵測畫面中 QR Code 的真實位置，畫出精準貼合的綠框
+const startQrBoxTracker = () => {
+  stopQrBoxTracker()
+  if (typeof window === 'undefined' || !('BarcodeDetector' in window)) return
+
+  let detector = null
+  try {
+    detector = new window.BarcodeDetector({ formats: ['qr_code'] })
+  } catch {
+    return
+  }
+
+  boxTrackTimer = setInterval(async () => {
+    if (!isCameraRunning.value || currentTab.value !== 'scan') return
+    const container = document.getElementById('qr-camera-reader')
+    const video = container?.querySelector('video')
+    const viewport = viewportRef.value
+    if (!video || !viewport || video.readyState < 2 || !video.videoWidth) return
+
+    try {
+      const barcodes = await detector.detect(video)
+      if (!barcodes || barcodes.length === 0) {
+        detectedBoxes.value = []
+        return
+      }
+
+      const vpRect = viewport.getBoundingClientRect()
+      const vw = video.videoWidth
+      const vh = video.videoHeight
+      // 計算 object-fit: cover 的實際縮放與裁切偏移量
+      const scale = Math.max(vpRect.width / vw, vpRect.height / vh)
+      const renderedW = vw * scale
+      const renderedH = vh * scale
+      const offsetX = (vpRect.width - renderedW) / 2
+      const offsetY = (vpRect.height - renderedH) / 2
+
+      detectedBoxes.value = barcodes.map((b) => {
+        const bb = b.boundingBox
+        const left = bb.x * scale + offsetX
+        const top = bb.y * scale + offsetY
+        const width = bb.width * scale
+        const height = bb.height * scale
+        return {
+          rawValue: b.rawValue,
+          style: {
+            left: `${left}px`,
+            top: `${top}px`,
+            width: `${width}px`,
+            height: `${height}px`
+          }
+        }
+      })
+    } catch {
+      // 忽略單幀偵測例外
+    }
+  }, 150)
+}
+
 const stopCameraScanner = async () => {
+  stopQrBoxTracker()
   if (html5QrInstance.value) {
     try {
       if (isCameraRunning.value) {
@@ -597,7 +694,6 @@ const stopCameraScanner = async () => {
     html5QrInstance.value = null
   }
   isCameraRunning.value = false
-  qrDetected.value = false
   flashOn.value = false
 }
 
@@ -606,7 +702,8 @@ const startCameraScanner = async () => {
   if (isCameraRunning.value) return
 
   scanError.value = false
-  qrDetected.value = false
+  duplicateAlertMsg.value = ''
+  successToastMsg.value = ''
   cameraStatusMsg.value = ''
   await nextTick()
 
@@ -625,19 +722,35 @@ const startCameraScanner = async () => {
       {
         fps: 15,
         qrbox: (viewfinderWidth, viewfinderHeight) => {
-          const minEdge = Math.min(viewfinderWidth, viewfinderHeight)
-          const boxSize = Math.max(160, Math.floor(minEdge * 0.65))
-          return { width: boxSize, height: boxSize }
+          const w = Math.max(200, Math.floor(viewfinderWidth * 0.72))
+          const h = Math.max(200, Math.floor(viewfinderHeight * 0.72))
+          return { width: w, height: h }
         },
         disableFlip: false
       },
       async (decodedText) => {
-        if (isExtracting.value || qrDetected.value) return
-        qrDetected.value = true
+        const now = Date.now()
+        // 避免同一張發票在 2.5 秒內重複觸發
+        if (decodedText === lastRawScannedText && now - lastRawScannedAt < 2500) {
+          return
+        }
+        lastRawScannedText = decodedText
+        lastRawScannedAt = now
 
-        setTimeout(() => {
-          qrDetected.value = false
-        }, 1200)
+        if (isExtracting.value) return
+
+        // 台灣電子發票左側 QR 前 10 碼即為發票號碼（2碼字軌 + 8碼數字）
+        const maybeInvNum = decodedText.trim().slice(0, 10).toUpperCase()
+        if (/^[A-Z]{2}\d{8}$/.test(maybeInvNum)) {
+          const exists = invoiceList.value.some(inv => inv.invoice_number === maybeInvNum)
+          if (exists) {
+            duplicateAlertMsg.value = '發票已存在'
+            setTimeout(() => {
+              duplicateAlertMsg.value = ''
+            }, 2200)
+            return
+          }
+        }
 
         if (!continuousScan.value) {
           await stopCameraScanner()
@@ -649,11 +762,12 @@ const startCameraScanner = async () => {
         )
       },
       () => {
-        // 尚未偵測到條碼時的連續掃描回呼
+        // 連續掃描中未讀到條碼時的回呼
       }
     )
 
     isCameraRunning.value = true
+    startQrBoxTracker()
   } catch (err) {
     console.error('啟動相機失敗：', err)
     isCameraRunning.value = false
@@ -712,7 +826,8 @@ onBeforeUnmount(() => {
 const openScanTab = async () => {
   lastExtractedInvoice.value = null
   scanError.value = false
-  qrDetected.value = false
+  duplicateAlertMsg.value = ''
+  successToastMsg.value = ''
   if (currentTab.value === 'scan') {
     await startCameraScanner()
   } else {
@@ -804,7 +919,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描說明】\n1. 將紙本電子發票 QR Code 置於對焦框內，或點右上角「手動輸入」。\n2. 有逐項明細時逐項計算；無逐項明細時套用預設消費類別係數推估碳足跡與隱形碳成本。')
+  alert('【掃描說明】\n1. 將整張紙本電子發票置於中央對焦框內，綠框會自動鎖定 QR Code。\n2. 若發票已登錄過，中央會提示「發票已存在」。\n3. 有逐項明細時逐項計算；無明細時套用預設消費類別係數推估。')
 }
 
 // 整合後端解析與預設推估結果（不寫死假商品）
@@ -913,9 +1028,28 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
     console.warn('後端未回應，改用預設類別係數推估：', err)
   } finally {
     const record = resolveInvoiceRecord(inputMeta, backendData, sourceType)
+
+    // 檢查是否重複發票號碼
+    const alreadyExists = invoiceList.value.some(
+      inv => inv.invoice_number === record.invoice_number
+    )
+    if (alreadyExists) {
+      duplicateAlertMsg.value = '發票已存在'
+      setTimeout(() => {
+        duplicateAlertMsg.value = ''
+      }, 2200)
+      isExtracting.value = false
+      return
+    }
+
     lastExtractedInvoice.value = record
     invoiceList.value.unshift(record)
     isExtracting.value = false
+
+    successToastMsg.value = `已擷取 ${record.invoice_number}`
+    setTimeout(() => {
+      successToastMsg.value = ''
+    }, 2000)
 
     if (sourceType === 'manual' || !continuousScan.value) {
       await stopCameraScanner()
@@ -985,7 +1119,7 @@ const handleLogout = async () => {
 }
 
 .dashboard-container.scan-mode {
-  padding-bottom: 2rem;
+  padding: 0.75rem 0.75rem 2rem 0.75rem;
 }
 
 .header {
@@ -1786,13 +1920,14 @@ const handleLogout = async () => {
   opacity: 0.8;
 }
 
+/* 滿版相機取景框：容納整張紙本電子發票 */
 .camera-viewport {
   background-color: #0a0a0a;
-  padding: 1.25rem 1.5rem;
+  padding: 1rem 1.15rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 360px;
+  height: 440px;
   position: relative;
   overflow: hidden;
 }
@@ -1806,24 +1941,51 @@ const handleLogout = async () => {
   z-index: 1;
 }
 
+/* 強制把 html5-qrcode 內層 div 與 video 撐滿整個取景區，消除下方黑邊 */
+.qr-video-container :deep(> div),
 .qr-video-container :deep(video) {
+  position: absolute !important;
+  inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
 }
 
-/* 隱藏 html5-qrcode 內建的掃描框，避免與自訂 .focus-frame 重疊出現兩組框 */
 .qr-video-container :deep(#qr-shaded-region) {
   display: none !important;
 }
 
+/* 動態精準追蹤 QR Code 座標的綠框層 */
+.qr-bounding-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.qr-live-green-box {
+  position: absolute;
+  border: 3px solid #22c55e;
+  background-color: rgba(34, 197, 94, 0.22);
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.85);
+  border-radius: 4px;
+  transition: all 0.08s linear;
+}
+
 .camera-overlay-content {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   height: 100%;
+  pointer-events: none;
+}
+
+.camera-controls-top,
+.camera-controls-bottom,
+.retry-btn {
+  pointer-events: auto;
 }
 
 .camera-controls-top {
@@ -1833,7 +1995,7 @@ const handleLogout = async () => {
 }
 
 .icon-circle-btn {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.35);
   border: none;
   color: #ffffff;
   width: 36px;
@@ -1852,38 +2014,29 @@ const handleLogout = async () => {
   color: #000000;
 }
 
+/* 中央大白色四角對焦框：剛好框住整張電子發票證明聯 */
 .focus-frame {
   position: relative;
-  width: 220px;
-  height: 220px;
+  width: 215px;
+  height: 290px;
   margin: auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
   box-sizing: border-box;
-  border-radius: 16px;
-  transition: box-shadow 0.2s ease, background-color 0.2s ease;
-}
-
-/* 偵測到 QR Code 時整框轉為綠色高亮 */
-.focus-frame.is-detected {
-  background-color: rgba(16, 185, 129, 0.18);
-  box-shadow: 0 0 0 3px #10b981, 0 0 24px rgba(16, 185, 129, 0.75);
 }
 
 .corner {
   position: absolute;
   width: 34px;
   height: 34px;
-  border-color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.92);
   border-style: solid;
-  transition: border-color 0.2s ease, transform 0.2s ease;
+  transition: border-color 0.2s ease;
 }
 
 .focus-frame.is-detected .corner {
-  border-color: #10b981;
-  transform: scale(1.06);
+  border-color: #22c55e;
 }
 
 .top-left {
@@ -1910,9 +2063,47 @@ const handleLogout = async () => {
   border-bottom-right-radius: 14px;
 }
 
+/* 紅色膠囊重複提示：「! 發票已存在」 */
+.duplicate-pill-toast {
+  background-color: rgba(239, 68, 68, 0.92);
+  color: #ffffff;
+  padding: 0.45rem 1.1rem;
+  border-radius: 999px;
+  font-size: 0.98rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  letter-spacing: 0.5px;
+}
+
+.dup-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  color: #ef4444;
+  font-size: 0.78rem;
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.success-pill-toast {
+  background-color: rgba(16, 185, 129, 0.92);
+  color: #ffffff;
+  padding: 0.45rem 1.05rem;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
 .camera-hint-box {
   text-align: center;
-  max-width: 200px;
+  max-width: 195px;
   background-color: rgba(0, 0, 0, 0.65);
   padding: 0.5rem 0.75rem;
   border-radius: 10px;
@@ -1920,16 +2111,8 @@ const handleLogout = async () => {
 
 .hint-text {
   color: #e5e7eb;
-  font-size: 0.88rem;
-  line-height: 1.5;
-  margin: 0;
-}
-
-.detected-text {
-  color: #6ee7b7;
-  font-size: 0.9rem;
-  font-weight: 700;
-  line-height: 1.4;
+  font-size: 0.86rem;
+  line-height: 1.45;
   margin: 0;
 }
 
@@ -1942,7 +2125,7 @@ const handleLogout = async () => {
 
 .error-text {
   color: #fca5a5;
-  font-size: 0.88rem;
+  font-size: 0.86rem;
   font-weight: bold;
   margin: 0;
 }
@@ -1961,7 +2144,6 @@ const handleLogout = async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 0.5rem;
 }
 
 .help-circle-btn {
@@ -1985,6 +2167,7 @@ const handleLogout = async () => {
   gap: 0.55rem;
   color: #ffffff;
   font-size: 0.88rem;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
 }
 
 .switch {
@@ -2011,7 +2194,7 @@ const handleLogout = async () => {
   background-color: white;
   transition: .3s;
 }
-input:checked + .slider { background-color: #10b981; }
+input:checked + .slider { background-color: #22c55e; }
 input:checked + .slider:before { transform: translateX(20px); }
 .slider.round { border-radius: 24px; }
 .slider.round:before { border-radius: 50%; }
@@ -2021,11 +2204,14 @@ input:checked + .slider:before { transform: translateX(20px); }
   color: #1f2937;
   border-top-left-radius: 24px;
   border-top-right-radius: 24px;
-  padding: 1.5rem 1.5rem 1.75rem 1.5rem;
+  padding: 1.35rem 1.35rem 1.65rem 1.35rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.1rem;
+  gap: 1rem;
+  margin-top: -12px;
+  position: relative;
+  z-index: 4;
 }
 
 .invoice-type-tabs {
@@ -2057,7 +2243,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 .invoice-guide-illustration {
-  padding: 0.5rem;
+  padding: 0.35rem;
 }
 
 .guide-corners {
