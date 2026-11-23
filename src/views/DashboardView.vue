@@ -1,6 +1,6 @@
 <template>
-  <div class="dashboard-container">
-    
+  <div class="dashboard-container" :class="{ 'scan-mode': currentTab === 'scan' }">
+
     <!-- 頂部導覽列：僅在「首頁 (home)」時顯示 -->
     <header class="header" v-if="currentTab === 'home'">
       <div class="title-area">
@@ -24,11 +24,11 @@
           </div>
           <div class="banner-stats">
             <div class="mini-stat">
-              <span class="stat-num">12.8</span>
+              <span class="stat-num">{{ totalCarbonSum }}</span>
               <span class="stat-label">當期總碳排 (kg)</span>
             </div>
             <div class="mini-stat">
-              <span class="stat-num">14</span>
+              <span class="stat-num">{{ invoiceList.length }}</span>
               <span class="stat-label">已解析發票 (筆)</span>
             </div>
             <div class="mini-stat">
@@ -49,18 +49,18 @@
                   <p>即時解析每筆消費的碳排量與隱形碳成本</p>
                 </div>
               </div>
-              <button class="action-plus-btn">+</button>
+              <button class="action-plus-btn" @click="openScanTab">+</button>
             </div>
 
             <div class="task-card">
               <div class="task-info">
-                <div class="task-icon blue-bg">💡</div>
+                <div class="task-icon blue-bg">📒</div>
                 <div>
-                  <h4>家庭用電與生活化指標</h4>
-                  <p>將碳排量轉換為日常消耗電度與生活對比</p>
+                  <h4>檢視本期發票存摺明細</h4>
+                  <p>瀏覽所有已擷取的發票品項、金額與來源紀錄</p>
                 </div>
               </div>
-              <button class="action-plus-btn">+</button>
+              <button class="action-plus-btn" @click="currentTab = 'invoices'">&gt;</button>
             </div>
 
             <div class="task-card">
@@ -71,25 +71,341 @@
                   <p>檢視食品、日用品與交通的碳排佔比分佈</p>
                 </div>
               </div>
-              <button class="action-plus-btn">+</button>
+              <button class="action-plus-btn" @click="currentTab = 'plan'">+</button>
             </div>
           </div>
         </section>
       </template>
 
-      <!-- 2. 【掃 QR】分頁內容 -->
-      <template v-if="currentTab === 'scan'">
-        <section class="page-card">
-          <div class="tab-content-center">
-            <div class="large-icon">📷</div>
-            <h2>發票 QR Code / 載具條碼掃描</h2>
-            <p>請將鏡頭對準電子發票上的 QR Code 或載具條碼進行快速掃描</p>
-            <button class="primary-action-btn" @click="simulateScan">模擬掃描發票</button>
+      <!-- 2. 【發票存摺】分頁內容 -->
+      <template v-if="currentTab === 'invoices'">
+        <div class="passbook-wrapper">
+          <!-- 頂部標題列 -->
+          <div class="passbook-top-bar">
+            <button class="passbook-icon-btn" @click="toggleSearchInput" title="搜尋發票、地點或品項">🔍</button>
+            <span class="passbook-bar-title">發票存摺</span>
+            <button class="passbook-icon-btn" @click="openScanTab" title="新增掃描發票">＋</button>
           </div>
-        </section>
+
+          <!-- 搜尋列（點擊放大鏡展開） -->
+          <div v-if="showSearchBar" class="passbook-search-bar">
+            <input
+              type="text"
+              v-model="searchKeyword"
+              placeholder="搜尋發票號碼、購買地點或品項..."
+              class="passbook-search-input"
+            />
+          </div>
+
+          <!-- 白色主體內容區 -->
+          <div class="passbook-body">
+            <!-- 期別左右切換器 -->
+            <div class="period-selector">
+              <button class="period-arrow-btn" @click="prevPeriod">&lt;</button>
+              <span class="period-text">{{ periods[currentPeriodIndex] }}</span>
+              <button class="period-arrow-btn" @click="nextPeriod">&gt;</button>
+            </div>
+
+            <!-- 本期消費與碳足跡摘要卡片 -->
+            <div class="period-summary-card">
+              <span class="summary-corner-badge">本期盤查中</span>
+              <div class="summary-subtitle">本期消費總金額</div>
+              <div class="summary-main-row">
+                <span class="summary-amount">TWD {{ filteredTotalAmount.toLocaleString() }}</span>
+                <span class="summary-divider">|</span>
+                <span class="summary-count">{{ filteredInvoices.length }} 張</span>
+              </div>
+              <div class="summary-carbon-pill">
+                🌱 本期累積碳排 <strong>{{ filteredTotalCarbon }}</strong> kg CO₂e ｜ 隱形碳成本 <strong>{{ filteredHiddenCost }}</strong> 元
+              </div>
+            </div>
+
+            <!-- 篩選與排序操作列 -->
+            <div class="passbook-filter-row">
+              <button class="filter-pill-btn" @click="cycleSourceFilter">
+                🧾 {{ sourceFilterLabel }}
+              </button>
+              <button class="sort-text-btn" @click="toggleSortOrder">
+                ⇅ {{ sortDesc ? '日期新到舊' : '日期舊到新' }}
+              </button>
+            </div>
+
+            <!-- 發票明細清單 -->
+            <div class="invoice-record-list" v-if="filteredInvoices.length > 0">
+              <div
+                class="invoice-record-item"
+                v-for="inv in filteredInvoices"
+                :key="inv.id"
+                @click="selectedInvoiceDetail = inv"
+              >
+                <div class="record-top-meta">
+                  <span>{{ inv.purchase_datetime || inv.purchase_date }}</span>
+                  <span class="meta-sep">|</span>
+                  <span>{{ inv.invoice_number }}</span>
+                  <span class="meta-sep">|</span>
+                  <span>{{ inv.merchant_name }}</span>
+                </div>
+
+                <div class="record-middle-main">
+                  <div class="record-title">
+                    {{ inv.summary_title }}
+                  </div>
+                  <div class="record-amount">
+                    TWD {{ inv.total_amount }}
+                  </div>
+                </div>
+
+                <div class="record-bottom-tags">
+                  <span class="tag-carbon">🌿 {{ inv.carbon_kg }} kg CO₂e</span>
+                  <div class="record-right-actions">
+                    <span
+                      class="tag-source"
+                      :class="inv.source_type === 'manual' ? 'source-manual' : 'source-electronic'"
+                    >
+                      {{ inv.source_type === 'manual' ? '手動輸入' : '電子發票' }}
+                    </span>
+                    <button
+                      type="button"
+                      class="tag-delete-btn"
+                      @click.stop="deleteInvoice(inv.id)"
+                    >
+                      刪除
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="empty-invoice-state">
+              <p>尚未掃描或輸入任何發票</p>
+              <button class="primary-action-btn" @click="openScanTab">前往掃描或手動輸入</button>
+            </div>
+          </div>
+        </div>
       </template>
 
-      <!-- 3. 【計畫】分頁內容 -->
+      <!-- 3. 【掃 QR】分頁內容 -->
+      <template v-if="currentTab === 'scan'">
+        <div class="scanner-wrapper">
+
+          <!-- 頂部功能列 (左側返回、中間標題、右側手動輸入) -->
+          <div class="scanner-top-bar">
+            <button class="scanner-text-btn" @click="currentTab = 'home'">&lt; 返回</button>
+            <span class="scanner-bar-title">掃描發票</span>
+            <button class="scanner-text-btn" @click="openManualModal">手動輸入</button>
+          </div>
+
+          <!-- 中間黑色相機取景與對焦區 -->
+          <div class="camera-viewport">
+            <div id="qr-camera-reader" class="qr-video-container"></div>
+
+            <div class="camera-overlay-content">
+              <div class="camera-controls-top">
+                <button
+                  class="icon-circle-btn"
+                  :class="{ active: flashOn }"
+                  @click="toggleTorch"
+                  title="切換閃光燈"
+                >
+                  {{ flashOn ? '⚡' : '🔦' }}
+                </button>
+                <button
+                  class="icon-circle-btn"
+                  :class="{ active: soundOn }"
+                  @click="soundOn = !soundOn"
+                  title="掃描音效"
+                >
+                  {{ soundOn ? '🔊' : '🔇' }}
+                </button>
+              </div>
+
+              <div class="focus-frame">
+                <span class="corner top-left"></span>
+                <span class="corner top-right"></span>
+                <span class="corner bottom-left"></span>
+                <span class="corner bottom-right"></span>
+
+                <div class="camera-hint-box" v-if="isExtracting || scanError || !isCameraRunning">
+                  <p v-if="isExtracting" class="hint-text">⏳ 正在解析發票資訊、計算碳足跡與隱形碳成本...</p>
+                  <div v-else-if="scanError" class="error-hint-box">
+                    <p class="error-text">⚠️ {{ cameraStatusMsg || '無法啟動相機或辨識失敗，請確認 HTTPS 與相機權限或點右上角「手動輸入」' }}</p>
+                    <button class="retry-btn" @click="startCameraScanner">重新開啟相機</button>
+                  </div>
+                  <p v-else class="hint-text">正在啟動相機，請稍候...</p>
+                </div>
+              </div>
+
+              <div class="camera-controls-bottom">
+                <button class="help-circle-btn" @click="alertHelp" title="掃描說明">?</button>
+
+                <div class="continuous-toggle">
+                  <span>連續掃描</span>
+                  <label class="switch">
+                    <input type="checkbox" v-model="continuousScan">
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 底部白色操作與示意說明區 -->
+          <div class="scanner-bottom-sheet">
+            <div class="invoice-type-tabs">
+              <button
+                class="type-tab"
+                :class="{ active: invoiceType === 'electronic' }"
+                @click="invoiceType = 'electronic'"
+              >
+                電子發票證明聯
+              </button>
+              <button
+                class="type-tab"
+                :class="{ active: invoiceType === 'traditional' }"
+                @click="invoiceType = 'traditional'"
+              >
+                傳統發票
+              </button>
+            </div>
+
+            <!-- 僅在實際掃描或手動輸入完成後，才顯示已擷取發票預覽 -->
+            <div v-if="lastExtractedInvoice" class="latest-extracted-box">
+              <div class="latest-extracted-header">
+                <span>
+                  ✅ <strong>{{ lastExtractedInvoice.invoice_number }}</strong>｜{{ lastExtractedInvoice.merchant_name }}（{{ lastExtractedInvoice.purchase_datetime || lastExtractedInvoice.purchase_date }}）
+                </span>
+                <div class="latest-extracted-actions">
+                  <button class="view-passbook-link" @click="currentTab = 'invoices'">前往發票存摺 &gt;</button>
+                  <button class="view-passbook-link" @click="lastExtractedInvoice = null">清除</button>
+                </div>
+              </div>
+              <div v-if="lastExtractedInvoice.items && lastExtractedInvoice.items.length > 0" class="latest-extracted-items">
+                <span v-for="(item, idx) in lastExtractedInvoice.items" :key="idx" class="item-chip">
+                  {{ item.item_name }} × {{ item.quantity }}（${{ item.amount }}）
+                </span>
+              </div>
+              <div v-else class="fallback-preview-text">
+                📌 {{ lastExtractedInvoice.calc_label }}
+              </div>
+            </div>
+
+            <!-- 尚未掃描或輸入前，顯示發票 QR Code 掃描示意圖框 -->
+            <div class="invoice-guide-illustration" v-else>
+              <div class="guide-corners">
+                <div class="mock-receipt" v-if="invoiceType === 'electronic'">
+                  <div class="receipt-header">電子發票證明聯</div>
+                  <div class="receipt-period">115年09-10月</div>
+                  <div class="receipt-num">FG-49916892</div>
+                  <div class="receipt-barcode">|||| ||| || |||| |||</div>
+                  <div class="receipt-qrs">
+                    <div class="qr-box">QR左</div>
+                    <div class="qr-box">QR右</div>
+                  </div>
+                </div>
+                <div class="mock-receipt" v-else>
+                  <div class="receipt-header">傳統長條型統一發票</div>
+                  <div class="receipt-period">115年09-10月</div>
+                  <div class="receipt-num">CD-55667788</div>
+                  <p class="trad-hint">請點擊右上角「手動輸入」登錄發票資訊</p>
+                </div>
+              </div>
+            </div>
+
+            <p class="scanner-footer-note">
+              對準紙本電子發票 QR Code 或點右上角「手動輸入」填入發票資訊；有逐項明細時逐項計算，無明細時套用預設類別係數推估。
+            </p>
+
+            <div class="demo-actions">
+              <button class="primary-action-btn" :disabled="isExtracting" @click="simulateScan">
+                {{ isExtracting ? '解析中...' : '模擬成功掃描解析' }}
+              </button>
+              <button class="secondary-outline-btn" @click="scanError = true">模擬光線不足失敗</button>
+            </div>
+          </div>
+
+          <!-- 手動輸入發票彈窗（對應：發票類型、發票日期、發票字軌2碼＋號碼8碼、發票金額、隨機碼4碼） -->
+          <div v-if="showManualModal" class="manual-modal-overlay" @click.self="showManualModal = false">
+            <div class="manual-modal-card manual-sheet-card">
+              <div class="manual-modal-topbar">
+                <button type="button" class="manual-back-btn" @click="showManualModal = false">&lt; 返回</button>
+                <h4>手動輸入</h4>
+                <span class="manual-topbar-spacer"></span>
+              </div>
+
+              <div class="input-group">
+                <label>發票類型 <span class="req-star">*</span></label>
+                <select v-model="manualForm.invoiceType" class="form-input form-select">
+                  <option value="electronic">電子發票證明聯</option>
+                  <option value="traditional">傳統發票</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label>發票日期 <span class="req-star">*</span></label>
+                <input
+                  type="text"
+                  v-model="manualForm.invoiceDate"
+                  placeholder="請輸入發票日期（例如：2026-10-30）"
+                  class="form-input"
+                />
+              </div>
+
+              <div class="input-group">
+                <label>發票號碼 <span class="req-star">*</span></label>
+                <div class="split-code-row">
+                  <input
+                    type="text"
+                    v-model="manualForm.trackCode"
+                    maxlength="2"
+                    placeholder="發票字軌2碼"
+                    class="form-input split-prefix"
+                  />
+                  <input
+                    type="text"
+                    v-model="manualForm.serialNumber"
+                    maxlength="8"
+                    placeholder="發票號碼8碼"
+                    class="form-input split-number"
+                  />
+                </div>
+              </div>
+
+              <div class="input-group">
+                <label>發票金額 <span class="req-star">*</span></label>
+                <input
+                  type="number"
+                  v-model.number="manualForm.totalAmount"
+                  placeholder="請輸入總計"
+                  class="form-input"
+                />
+              </div>
+
+              <div class="input-group">
+                <label>隨機碼 <span class="req-star">*</span></label>
+                <input
+                  type="text"
+                  v-model="manualForm.randomCode"
+                  maxlength="4"
+                  placeholder="請輸入隨機碼4碼"
+                  class="form-input"
+                />
+              </div>
+
+              <button
+                type="button"
+                class="save-passbook-btn"
+                :disabled="isExtracting || !isManualFormValid"
+                @click="submitManualInvoice"
+              >
+                {{ isExtracting ? '儲存與解析中...' : '確認儲存至發票存摺' }}
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </template>
+
+      <!-- 4. 【計畫】分頁內容 -->
       <template v-if="currentTab === 'plan'">
         <section class="page-card">
           <h3 class="section-title mb-3 text-dark">🌱 進行中的低碳改善計畫</h3>
@@ -112,7 +428,7 @@
         </section>
       </template>
 
-      <!-- 4. 【設定會員】分頁內容 -->
+      <!-- 5. 【設定會員】分頁內容 -->
       <template v-if="currentTab === 'member'">
         <section class="page-card">
           <h3 class="section-title mb-3 text-dark">⚙️ 設定會員</h3>
@@ -146,13 +462,46 @@
 
     </main>
 
-    <!-- 底部固定導覽列 -->
-    <nav class="bottom-nav">
+    <!-- 發票明細檢視彈窗（點擊發票存摺任一列開啟） -->
+    <div v-if="selectedInvoiceDetail" class="manual-modal-overlay" @click.self="selectedInvoiceDetail = null">
+      <div class="manual-modal-card">
+        <h4>🧾 發票消費與碳排明細</h4>
+        <div class="detail-meta-box">
+          <p><strong>發票號碼：</strong>{{ selectedInvoiceDetail.invoice_number }}</p>
+          <p><strong>推估方式：</strong>{{ selectedInvoiceDetail.calc_label }}</p>
+          <p><strong>店家／類別：</strong>{{ selectedInvoiceDetail.merchant_name }}</p>
+          <p><strong>購買時間：</strong>{{ selectedInvoiceDetail.purchase_datetime || selectedInvoiceDetail.purchase_date }}</p>
+          <p><strong>隨機碼：</strong>{{ selectedInvoiceDetail.random_code || '—' }}</p>
+          <p><strong>登錄方式：</strong>{{ selectedInvoiceDetail.source_type === 'manual' ? '手動輸入' : '電子發票' }}</p>
+          <p><strong>推估碳排：</strong>{{ selectedInvoiceDetail.carbon_kg }} kg CO₂e（隱形碳成本 {{ selectedInvoiceDetail.hidden_carbon_cost }} 元）</p>
+        </div>
+        <div class="detail-items-list" v-if="selectedInvoiceDetail.items && selectedInvoiceDetail.items.length > 0">
+          <div class="detail-item-row" v-for="(item, idx) in selectedInvoiceDetail.items" :key="idx">
+            <span>{{ item.item_name }} × {{ item.quantity }}</span>
+            <span>TWD {{ item.amount }}</span>
+          </div>
+        </div>
+        <p v-else class="fallback-detail-note">
+          此筆發票無逐項商品明細，不產生假商品，已依發票金額與預設類別係數完成碳排推估。
+        </p>
+        <div class="modal-btn-row">
+          <button class="delete-modal-btn" @click="deleteInvoice(selectedInvoiceDetail.id)">刪除此筆</button>
+          <button class="primary-action-btn" @click="selectedInvoiceDetail = null">關閉</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部固定導覽列：進入掃描發票 (scan) 分頁時隱藏 -->
+    <nav class="bottom-nav" v-if="currentTab !== 'scan'">
       <div class="nav-item" :class="{ active: currentTab === 'home' }" @click="currentTab = 'home'">
         <span class="nav-icon">🏠</span>
         <span class="nav-label">首頁</span>
       </div>
-      <div class="nav-item" :class="{ active: currentTab === 'scan' }" @click="currentTab = 'scan'">
+      <div class="nav-item" :class="{ active: currentTab === 'invoices' }" @click="currentTab = 'invoices'">
+        <span class="nav-icon">🧾</span>
+        <span class="nav-label">發票存摺</span>
+      </div>
+      <div class="nav-item" :class="{ active: currentTab === 'scan' }" @click="openScanTab">
         <span class="nav-icon">📷</span>
         <span class="nav-label">掃 QR</span>
       </div>
@@ -170,27 +519,434 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { Html5Qrcode } from 'html5-qrcode'
 
 const router = useRouter()
 const nickname = ref('使用者')
 const currentTab = ref('home')
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+
+// 掃描器與相機狀態
+const flashOn = ref(false)
+const soundOn = ref(true)
+const continuousScan = ref(true)
+const invoiceType = ref('electronic')
+const scanError = ref(false)
+const isExtracting = ref(false)
+const lastExtractedInvoice = ref(null)
+const html5QrInstance = ref(null)
+const isCameraRunning = ref(false)
+const cameraStatusMsg = ref('')
+
+// 手動輸入表單狀態（對應：發票類型、發票日期、字軌2碼、號碼8碼、發票金額、隨機碼4碼）
+const showManualModal = ref(false)
+const manualForm = reactive({
+  invoiceType: 'electronic',
+  invoiceDate: '',
+  trackCode: '',
+  serialNumber: '',
+  totalAmount: null,
+  randomCode: ''
+})
+
+// 發票存摺狀態
+const periods = ['115年07–08月', '115年09–10月', '115年11–12月']
+const currentPeriodIndex = ref(1)
+const showSearchBar = ref(false)
+const searchKeyword = ref('')
+const sourceFilter = ref('all')
+const sortDesc = ref(true)
+const selectedInvoiceDetail = ref(null)
+const invoiceList = ref([])
+
+const isManualFormValid = computed(() => {
+  return (
+    manualForm.invoiceDate.trim().length > 0 &&
+    manualForm.trackCode.trim().length === 2 &&
+    manualForm.serialNumber.trim().length === 8 &&
+    Number(manualForm.totalAmount) > 0 &&
+    manualForm.randomCode.trim().length === 4
+  )
+})
+
+const openManualModal = () => {
+  manualForm.invoiceType = invoiceType.value
+  manualForm.invoiceDate = ''
+  manualForm.trackCode = ''
+  manualForm.serialNumber = ''
+  manualForm.totalAmount = null
+  manualForm.randomCode = ''
+  showManualModal.value = true
+}
+
+const stopCameraScanner = async () => {
+  if (html5QrInstance.value) {
+    try {
+      if (isCameraRunning.value) {
+        await html5QrInstance.value.stop()
+      }
+      await html5QrInstance.value.clear()
+    } catch (err) {
+      console.warn('停止相機時略過例外：', err)
+    }
+    html5QrInstance.value = null
+  }
+  isCameraRunning.value = false
+  flashOn.value = false
+}
+
+const startCameraScanner = async () => {
+  if (currentTab.value !== 'scan') return
+  if (isCameraRunning.value) return
+
+  scanError.value = false
+  cameraStatusMsg.value = ''
+  await nextTick()
+
+  const containerEl = document.getElementById('qr-camera-reader')
+  if (!containerEl) return
+
+  try {
+    await stopCameraScanner()
+    const scanner = new Html5Qrcode('qr-camera-reader')
+    html5QrInstance.value = scanner
+
+    await scanner.start(
+      { facingMode: 'environment' },
+      {
+        fps: 10,
+        qrbox: { width: 220, height: 150 }
+      },
+      async (decodedText) => {
+        if (isExtracting.value) return
+        if (!continuousScan.value) {
+          await stopCameraScanner()
+        }
+        await processInvoiceLookup(
+          { invoiceType: invoiceType.value },
+          decodedText,
+          'qr'
+        )
+      },
+      () => {
+        // 尚未偵測到條碼時的連續掃描回呼
+      }
+    )
+
+    isCameraRunning.value = true
+  } catch (err) {
+    console.error('啟動相機失敗：', err)
+    isCameraRunning.value = false
+    scanError.value = true
+    cameraStatusMsg.value = err?.message || '無法存取相機，請確認使用 HTTPS 並允許相機權限'
+  }
+}
+
+const toggleTorch = async () => {
+  const nextTorch = !flashOn.value
+  if (html5QrInstance.value && isCameraRunning.value) {
+    try {
+      await html5QrInstance.value.applyVideoConstraints({
+        advanced: [{ torch: nextTorch }]
+      })
+      flashOn.value = nextTorch
+    } catch (err) {
+      console.warn('此裝置或瀏覽器不支援直接切換閃光燈：', err)
+      flashOn.value = nextTorch
+    }
+  } else {
+    flashOn.value = nextTorch
+  }
+}
+
+watch(currentTab, async (newTab, oldTab) => {
+  if (newTab === 'scan') {
+    await startCameraScanner()
+  } else if (oldTab === 'scan') {
+    await stopCameraScanner()
+  }
+})
+
+watch(showManualModal, async (isOpen) => {
+  if (isOpen) {
+    await stopCameraScanner()
+  } else if (currentTab.value === 'scan') {
+    await startCameraScanner()
+  }
+})
 
 onMounted(() => {
   const savedNickname = localStorage.getItem('user_nickname')
   if (savedNickname) {
     nickname.value = savedNickname
   }
+  if (currentTab.value === 'scan') {
+    startCameraScanner()
+  }
 })
 
-const simulateScan = () => {
-  alert('成功掃描並解析發票！碳排量 +0.8 kg')
-  currentTab.value = 'home'
+onBeforeUnmount(() => {
+  stopCameraScanner()
+})
+
+const openScanTab = async () => {
+  lastExtractedInvoice.value = null
+  scanError.value = false
+  if (currentTab.value === 'scan') {
+    await startCameraScanner()
+  } else {
+    currentTab.value = 'scan'
+  }
 }
 
-const handleLogout = () => {
+const deleteInvoice = (targetId) => {
+  invoiceList.value = invoiceList.value.filter(item => item.id !== targetId)
+  if (selectedInvoiceDetail.value && selectedInvoiceDetail.value.id === targetId) {
+    selectedInvoiceDetail.value = null
+  }
+}
+
+const totalCarbonSum = computed(() => {
+  const sum = invoiceList.value.reduce((acc, item) => acc + Number(item.carbon_kg || 0), 0)
+  return sum.toFixed(1)
+})
+
+const sourceFilterLabel = computed(() => {
+  if (sourceFilter.value === 'electronic') return '僅看電子發票'
+  if (sourceFilter.value === 'manual') return '僅看手動輸入'
+  return '全部發票來源'
+})
+
+const filteredInvoices = computed(() => {
+  let list = [...invoiceList.value]
+
+  if (sourceFilter.value === 'electronic') {
+    list = list.filter(i => i.source_type !== 'manual')
+  } else if (sourceFilter.value === 'manual') {
+    list = list.filter(i => i.source_type === 'manual')
+  }
+
+  if (searchKeyword.value.trim()) {
+    const kw = searchKeyword.value.trim().toLowerCase()
+    list = list.filter(
+      i =>
+        i.invoice_number.toLowerCase().includes(kw) ||
+        i.merchant_name.toLowerCase().includes(kw) ||
+        i.summary_title.toLowerCase().includes(kw)
+    )
+  }
+
+  list.sort((a, b) => {
+    const dateA = (a.purchase_datetime || a.purchase_date).replaceAll('/', '').replaceAll('-', '')
+    const dateB = (b.purchase_datetime || b.purchase_date).replaceAll('/', '').replaceAll('-', '')
+    return sortDesc.value ? dateB.localeCompare(dateA) : dateA.localeCompare(dateB)
+  })
+
+  return list
+})
+
+const filteredTotalAmount = computed(() => {
+  return filteredInvoices.value.reduce((acc, item) => acc + Number(item.total_amount || 0), 0)
+})
+
+const filteredTotalCarbon = computed(() => {
+  const sum = filteredInvoices.value.reduce((acc, item) => acc + Number(item.carbon_kg || 0), 0)
+  return sum.toFixed(2)
+})
+
+const filteredHiddenCost = computed(() => {
+  const sum = filteredInvoices.value.reduce((acc, item) => acc + Number(item.hidden_carbon_cost || 0), 0)
+  return Math.round(sum)
+})
+
+const prevPeriod = () => {
+  if (currentPeriodIndex.value > 0) currentPeriodIndex.value--
+}
+
+const nextPeriod = () => {
+  if (currentPeriodIndex.value < periods.length - 1) currentPeriodIndex.value++
+}
+
+const toggleSearchInput = () => {
+  showSearchBar.value = !showSearchBar.value
+  if (!showSearchBar.value) searchKeyword.value = ''
+}
+
+const cycleSourceFilter = () => {
+  if (sourceFilter.value === 'all') sourceFilter.value = 'electronic'
+  else if (sourceFilter.value === 'electronic') sourceFilter.value = 'manual'
+  else sourceFilter.value = 'all'
+}
+
+const toggleSortOrder = () => {
+  sortDesc.value = !sortDesc.value
+}
+
+const alertHelp = () => {
+  alert('【掃描說明】\n1. 將紙本電子發票 QR Code 置於對焦框內，或點右上角「手動輸入」。\n2. 有逐項明細時逐項計算；無逐項明細時套用預設消費類別係數推估碳足跡與隱形碳成本。')
+}
+
+// 整合後端解析與預設推估結果（不寫死假商品）
+const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr') => {
+  const cleanNum = (
+    backendData.invoice_number ||
+    inputMeta.invoiceNumber ||
+    '未提供字軌'
+  )
+    .toUpperCase()
+    .replaceAll('-', '')
+    .trim()
+
+  const categoryName = backendData.category_name || '一般消費'
+  const merchantName =
+    backendData.merchant_name ||
+    `預設${categoryName}推估（${cleanNum.slice(0, 2)}字軌）`
+
+  const inputDateClean = (inputMeta.invoiceDate || '').trim()
+  const rawDatetime =
+    backendData.purchase_datetime ||
+    (inputDateClean
+      ? `${inputDateClean.replaceAll('/', '-')} 19:34:37`
+      : backendData.purchase_date
+      ? `${backendData.purchase_date} 19:34:37`
+      : '2026-10-30 19:34:37')
+
+  const formattedDate = inputDateClean
+    ? inputDateClean.replaceAll('-', '/')
+    : backendData.purchase_date
+    ? backendData.purchase_date.replaceAll('-', '/')
+    : rawDatetime.slice(0, 10).replaceAll('-', '/')
+
+  const totalAmount =
+    Number(inputMeta.totalAmount) > 0
+      ? Number(inputMeta.totalAmount)
+      : Number(backendData.total_amount) > 0
+      ? Number(backendData.total_amount)
+      : 0
+
+  const items = Array.isArray(backendData.items) ? backendData.items : []
+
+  const calcLabel =
+    backendData.calc_label ||
+    (items.length > 0
+      ? '逐項商品明細推估'
+      : `無逐項明細，套用預設「${categoryName}」係數推估`)
+
+  const summaryTitle =
+    items.length > 1
+      ? `${items[0].item_name} 等 ${items.length} 項`
+      : items.length === 1
+      ? items[0].item_name
+      : `預設${categoryName}推估（無逐項明細）`
+
+  const estimatedCarbon =
+    backendData.carbon_kg !== undefined
+      ? Number(Number(backendData.carbon_kg).toFixed(2))
+      : Number((totalAmount * 0.0015).toFixed(2))
+
+  const hiddenCost =
+    backendData.hidden_carbon_cost !== undefined
+      ? Number(Number(backendData.hidden_carbon_cost).toFixed(2))
+      : Number((estimatedCarbon * 3.2).toFixed(2))
+
+  return {
+    id: backendData.invoice_id || Date.now() + Math.random(),
+    invoice_number: cleanNum,
+    merchant_name: merchantName,
+    category_name: categoryName,
+    purchase_datetime: rawDatetime,
+    purchase_date: formattedDate,
+    random_code: inputMeta.randomCode || backendData.random_code || '',
+    summary_title: summaryTitle,
+    total_amount: totalAmount,
+    carbon_kg: estimatedCarbon,
+    hidden_carbon_cost: hiddenCost,
+    calc_label: calcLabel,
+    source_type: sourceType === 'manual' ? 'manual' : 'electronic',
+    items
+  }
+}
+
+const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') => {
+  isExtracting.value = true
+  scanError.value = false
+  const userPhone = localStorage.getItem('user_phone') || ''
+
+  let backendData = {}
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/invoices/extract`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: userPhone,
+        invoice_type: inputMeta.invoiceType || invoiceType.value,
+        source_type: sourceType,
+        qr_raw_data: rawPayload
+      })
+    })
+    if (res.ok) {
+      const result = await res.json()
+      backendData = result?.data || {}
+    }
+  } catch (err) {
+    console.warn('後端未回應，改用預設類別係數推估：', err)
+  } finally {
+    const record = resolveInvoiceRecord(inputMeta, backendData, sourceType)
+    lastExtractedInvoice.value = record
+    invoiceList.value.unshift(record)
+    isExtracting.value = false
+
+    if (sourceType === 'manual' || !continuousScan.value) {
+      await stopCameraScanner()
+      currentTab.value = 'invoices'
+    }
+  }
+}
+
+const simulateScan = () => {
+  const sampleQr =
+    'FG499168921151030184800000593000005930000000087158388000000000000000000000000:招牌去骨炸雞:1:398:韓式炸年糕與薯條:1:195:'
+  processInvoiceLookup(
+    {
+      invoiceNumber: 'FG49916892',
+      invoiceDate: '2026-10-30',
+      totalAmount: 593,
+      randomCode: '1848',
+      invoiceType: invoiceType.value
+    },
+    sampleQr,
+    'qr_simulated'
+  )
+}
+
+const submitManualInvoice = () => {
+  if (!isManualFormValid.value) {
+    alert('請完整填寫發票日期、字軌2碼、號碼8碼、發票金額與隨機碼4碼')
+    return
+  }
+
+  const track = manualForm.trackCode.trim().toUpperCase()
+  const serial = manualForm.serialNumber.trim()
+  const fullNumber = `${track}${serial}`
+  const meta = {
+    invoiceType: manualForm.invoiceType,
+    invoiceDate: manualForm.invoiceDate.trim(),
+    invoiceNumber: fullNumber,
+    totalAmount: Number(manualForm.totalAmount),
+    randomCode: manualForm.randomCode.trim()
+  }
+
+  const payload = JSON.stringify(meta)
+  showManualModal.value = false
+  processInvoiceLookup(meta, payload, 'manual')
+}
+
+const handleLogout = async () => {
   if (confirm('確定要登出系統嗎？')) {
+    await stopCameraScanner()
     localStorage.removeItem('user_nickname')
     localStorage.removeItem('user_phone')
     localStorage.removeItem('user_barcode')
@@ -208,6 +964,10 @@ const handleLogout = () => {
   font-family: sans-serif;
   box-sizing: border-box;
   position: relative;
+}
+
+.dashboard-container.scan-mode {
+  padding-bottom: 2rem;
 }
 
 .header {
@@ -422,6 +1182,395 @@ const handleLogout = () => {
   border-color: #059669;
 }
 
+/* ================= 發票存摺分頁樣式 ================= */
+.passbook-wrapper {
+  background-color: #ffffff;
+  color: #1f2937;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+  border: 1px solid #3e2723;
+}
+
+.passbook-top-bar {
+  background-color: #3e2723;
+  color: #ffffff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.9rem 1.25rem;
+}
+
+.passbook-bar-title {
+  font-size: 1.08rem;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+.passbook-icon-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #efebe9;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.passbook-search-bar {
+  padding: 0.75rem 1.25rem;
+  background-color: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.passbook-search-input {
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.passbook-body {
+  padding: 1.25rem 1.5rem 1.75rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.period-selector {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+}
+
+.period-arrow-btn {
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: #374151;
+  cursor: pointer;
+  padding: 0.25rem 0.75rem;
+}
+
+.period-text {
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: 0.5px;
+}
+
+.period-summary-card {
+  position: relative;
+  border: 2px solid #f59e0b;
+  border-radius: 18px;
+  padding: 2.25rem 1.25rem 1.1rem 1.25rem;
+  background-color: #fffdf7;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.12);
+}
+
+.summary-corner-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background-color: #fde68a;
+  color: #78350f;
+  font-size: 0.82rem;
+  font-weight: bold;
+  padding: 0.32rem 0.95rem;
+  border-top-left-radius: 15px;
+  border-bottom-right-radius: 14px;
+}
+
+.summary-subtitle {
+  font-size: 0.88rem;
+  color: #4b5563;
+  margin-bottom: 0.35rem;
+}
+
+.summary-main-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  margin-bottom: 0.9rem;
+}
+
+.summary-amount {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #111827;
+}
+
+.summary-divider {
+  color: #d1d5db;
+  font-weight: bold;
+}
+
+.summary-count {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #374151;
+}
+
+.summary-carbon-pill {
+  background-color: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.86rem;
+  text-align: center;
+}
+
+.passbook-filter-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.filter-pill-btn {
+  background-color: #ede9fe;
+  color: #4c1d95;
+  border: none;
+  padding: 0.42rem 0.95rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sort-text-btn {
+  background: none;
+  border: none;
+  color: #374151;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.invoice-record-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.invoice-record-item {
+  padding: 1rem 0.25rem;
+  border-bottom: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.invoice-record-item:hover {
+  background-color: #f9fafb;
+}
+
+.record-top-meta {
+  font-size: 0.85rem;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.35rem;
+}
+
+.meta-sep {
+  color: #d1d5db;
+}
+
+.record-middle-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.55rem;
+}
+
+.record-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: #111827;
+  line-height: 1.4;
+}
+
+.record-amount {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #111827;
+  white-space: nowrap;
+}
+
+.record-bottom-tags {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.record-right-actions {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.tag-carbon {
+  background-color: #f3f4f6;
+  color: #374151;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.22rem 0.65rem;
+  border-radius: 6px;
+}
+
+.tag-source {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.22rem 0.65rem;
+  border-radius: 6px;
+}
+
+.source-electronic {
+  background-color: #e0e7ff;
+  color: #3730a3;
+}
+
+.source-manual {
+  background-color: #ccfbf1;
+  color: #115e59;
+}
+
+.tag-delete-btn {
+  background-color: #fee2e2;
+  color: #b91c1c;
+  border: none;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.22rem 0.65rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tag-delete-btn:hover {
+  background-color: #fecaca;
+}
+
+.empty-invoice-state {
+  text-align: center;
+  padding: 2.25rem 1rem;
+  color: #6b7280;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.empty-invoice-state p {
+  margin: 0;
+}
+
+/* 掃描後即時預覽卡片 */
+.latest-extracted-box {
+  width: 100%;
+  background-color: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.latest-extracted-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.86rem;
+  color: #065f46;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.latest-extracted-actions {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.view-passbook-link {
+  background: none;
+  border: none;
+  color: #047857;
+  font-weight: bold;
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: 0.82rem;
+}
+
+.latest-extracted-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.item-chip {
+  background-color: #ffffff;
+  color: #1f2937;
+  border: 1px solid #a7f3d0;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
+
+.fallback-preview-text {
+  font-size: 0.82rem;
+  color: #065f46;
+}
+
+.detail-meta-box {
+  background-color: #f9fafb;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.detail-meta-box p {
+  margin: 0;
+}
+
+.detail-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.75rem;
+}
+
+.detail-item-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: #1f2937;
+}
+
+.fallback-detail-note {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* ================= 其餘原有樣式 ================= */
 .ongoing-card {
   background-color: #ffffff;
   color: #1f2937;
@@ -496,19 +1645,6 @@ const handleLogout = () => {
   box-sizing: border-box;
 }
 
-.tab-content-center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 1rem;
-  padding: 2rem 0;
-}
-
-.large-icon {
-  font-size: 3.5rem;
-}
-
 .primary-action-btn {
   background-color: #059669;
   color: white;
@@ -523,6 +1659,21 @@ const handleLogout = () => {
 
 .primary-action-btn:hover {
   background-color: #047857;
+}
+
+.primary-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.delete-modal-btn {
+  background-color: #fee2e2;
+  color: #b91c1c;
+  border: none;
+  padding: 0.7rem 1.2rem;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
 }
 
 .settings-list-card {
@@ -574,6 +1725,543 @@ const handleLogout = () => {
 
 .text-red {
   color: #dc2626 !important;
+}
+
+/* 掃描器介面樣式 */
+.scanner-wrapper {
+  background-color: #000000;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #3e2723;
+}
+
+.scanner-top-bar {
+  background-color: #3e2723;
+  color: #ffffff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.9rem 1.25rem;
+  border-bottom: 1px solid #5d4037;
+}
+
+.scanner-bar-title {
+  font-size: 1.05rem;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+
+.scanner-text-btn {
+  background: none;
+  border: none;
+  color: #efebe9;
+  font-size: 0.92rem;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  transition: opacity 0.2s;
+}
+
+.scanner-text-btn:hover {
+  opacity: 0.8;
+}
+
+.camera-viewport {
+  background-color: #0a0a0a;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 310px;
+  position: relative;
+  overflow: hidden;
+}
+
+.qr-video-container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.qr-video-container :deep(video) {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+.camera-overlay-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex: 1;
+  min-height: 286px;
+}
+
+.camera-controls-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.icon-circle-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  color: #ffffff;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.icon-circle-btn.active {
+  background: #f59e0b;
+  color: #000000;
+}
+
+.focus-frame {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  height: 185px;
+  margin: 1rem auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.corner {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-color: #ffffff;
+  border-style: solid;
+}
+
+.top-left {
+  top: 0; left: 0;
+  border-width: 4px 0 0 4px;
+  border-top-left-radius: 14px;
+}
+
+.top-right {
+  top: 0; right: 0;
+  border-width: 4px 4px 0 0;
+  border-top-right-radius: 14px;
+}
+
+.bottom-left {
+  bottom: 0; left: 0;
+  border-width: 0 0 4px 4px;
+  border-bottom-left-radius: 14px;
+}
+
+.bottom-right {
+  bottom: 0; right: 0;
+  border-width: 0 4px 4px 0;
+  border-bottom-right-radius: 14px;
+}
+
+.camera-hint-box {
+  text-align: center;
+  max-width: 260px;
+  background-color: rgba(0, 0, 0, 0.55);
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+}
+
+.hint-text {
+  color: #e5e7eb;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.error-hint-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.error-text {
+  color: #fca5a5;
+  font-size: 0.88rem;
+  font-weight: bold;
+  margin: 0;
+}
+
+.retry-btn {
+  background-color: #059669;
+  color: #ffffff;
+  border: none;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.camera-controls-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.help-circle-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  color: #111827;
+  border: none;
+  font-weight: bold;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.continuous-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: #ffffff;
+  font-size: 0.88rem;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #4b5563;
+  transition: .3s;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+}
+input:checked + .slider { background-color: #10b981; }
+input:checked + .slider:before { transform: translateX(20px); }
+.slider.round { border-radius: 24px; }
+.slider.round:before { border-radius: 50%; }
+
+.scanner-bottom-sheet {
+  background-color: #ffffff;
+  color: #1f2937;
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  padding: 1.5rem 1.5rem 1.75rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+}
+
+.invoice-type-tabs {
+  display: flex;
+  background-color: #f3f4f6;
+  padding: 0.25rem;
+  border-radius: 9999px;
+  width: 100%;
+  max-width: 340px;
+}
+
+.type-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 0.5rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.type-tab.active {
+  background-color: #ffffff;
+  color: #111827;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+.invoice-guide-illustration {
+  padding: 0.5rem;
+}
+
+.guide-corners {
+  border: 2px dashed #d1d5db;
+  border-radius: 12px;
+  padding: 0.75rem 1.25rem;
+  background-color: #f9fafb;
+}
+
+.mock-receipt {
+  width: 160px;
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.6rem;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
+
+.receipt-header {
+  font-size: 0.72rem;
+  font-weight: bold;
+  color: #1f2937;
+}
+
+.receipt-period {
+  font-size: 0.78rem;
+  font-weight: bold;
+  color: #374151;
+  margin-top: 2px;
+}
+
+.receipt-num {
+  font-size: 0.75rem;
+  color: #059669;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.receipt-barcode {
+  font-size: 0.65rem;
+  letter-spacing: 1px;
+  color: #4b5563;
+  margin-bottom: 6px;
+}
+
+.receipt-qrs {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.qr-box {
+  width: 44px;
+  height: 44px;
+  border: 2px solid #10b981;
+  background-color: #ecfdf5;
+  color: #047857;
+  font-size: 0.65rem;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.trad-hint {
+  font-size: 0.7rem;
+  color: #6b7280;
+  margin: 0.5rem 0 0 0;
+  line-height: 1.4;
+}
+
+.scanner-footer-note {
+  font-size: 0.85rem;
+  color: #4b5563;
+  text-align: center;
+  max-width: 460px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.demo-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 0.25rem;
+}
+
+.secondary-outline-btn {
+  background-color: #ffffff;
+  color: #4b5563;
+  border: 1px solid #d1d5db;
+  padding: 0.75rem 1.2rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.secondary-outline-btn:hover {
+  background-color: #f3f4f6;
+}
+
+.manual-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 1rem;
+}
+
+.manual-modal-card {
+  background-color: #ffffff;
+  color: #1f2937;
+  width: 100%;
+  max-width: 400px;
+  border-radius: 20px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+.manual-sheet-card {
+  max-width: 430px;
+  padding: 0 0 1.35rem 0;
+  overflow: hidden;
+  gap: 0.9rem;
+}
+
+.manual-modal-topbar {
+  background-color: #7c5dfa;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.15rem;
+}
+
+.manual-modal-topbar h4 {
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.manual-back-btn {
+  background: none;
+  border: none;
+  color: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.manual-topbar-spacer {
+  width: 44px;
+}
+
+.manual-sheet-card .input-group {
+  padding: 0 1.25rem;
+}
+
+.req-star {
+  color: #ef4444;
+  font-weight: 700;
+}
+
+.form-select {
+  background-color: #ffffff;
+  color: #111827;
+}
+
+.split-code-row {
+  display: grid;
+  grid-template-columns: 115px 1fr;
+  gap: 0.65rem;
+}
+
+.save-passbook-btn {
+  margin: 0.35rem 1.25rem 0 1.25rem;
+  background-color: #059669;
+  color: #ffffff;
+  border: none;
+  padding: 0.85rem 1.25rem;
+  border-radius: 999px;
+  font-size: 0.98rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.save-passbook-btn:hover:not(:disabled) {
+  background-color: #047857;
+}
+
+.save-passbook-btn:disabled {
+  background-color: #e5e7eb;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+.manual-modal-card h4 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #111827;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.input-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #4b5563;
+}
+
+.form-input {
+  padding: 0.75rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  outline: none;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.form-input:focus {
+  border-color: #059669;
+}
+
+.modal-btn-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .bottom-nav {
