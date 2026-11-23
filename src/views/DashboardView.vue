@@ -219,14 +219,15 @@
                 </button>
               </div>
 
-              <div class="focus-frame">
+              <div class="focus-frame" :class="{ 'is-detected': qrDetected }">
                 <span class="corner top-left"></span>
                 <span class="corner top-right"></span>
                 <span class="corner bottom-left"></span>
                 <span class="corner bottom-right"></span>
 
-                <div class="camera-hint-box" v-if="isExtracting || scanError || !isCameraRunning">
-                  <p v-if="isExtracting" class="hint-text">⏳ 正在解析發票資訊、計算碳足跡與隱形碳成本...</p>
+                <div class="camera-hint-box" v-if="qrDetected || isExtracting || scanError || !isCameraRunning">
+                  <p v-if="qrDetected" class="detected-text">✅ 已偵測到 QR Code，正在解析發票...</p>
+                  <p v-else-if="isExtracting" class="hint-text">⏳ 正在解析發票資訊、計算碳足跡與隱形碳成本...</p>
                   <div v-else-if="scanError" class="error-hint-box">
                     <p class="error-text">⚠️ {{ cameraStatusMsg || '無法啟動相機或辨識失敗，請確認 HTTPS 與相機權限或點右上角「手動輸入」' }}</p>
                     <button class="retry-btn" @click="startCameraScanner">重新開啟相機</button>
@@ -540,6 +541,7 @@ const lastExtractedInvoice = ref(null)
 const html5QrInstance = ref(null)
 const isCameraRunning = ref(false)
 const cameraStatusMsg = ref('')
+const qrDetected = ref(false)
 
 // 手動輸入表單狀態（對應：發票類型、發票日期、字軌2碼、號碼8碼、發票金額、隨機碼4碼）
 const showManualModal = ref(false)
@@ -595,6 +597,7 @@ const stopCameraScanner = async () => {
     html5QrInstance.value = null
   }
   isCameraRunning.value = false
+  qrDetected.value = false
   flashOn.value = false
 }
 
@@ -603,6 +606,7 @@ const startCameraScanner = async () => {
   if (isCameraRunning.value) return
 
   scanError.value = false
+  qrDetected.value = false
   cameraStatusMsg.value = ''
   await nextTick()
 
@@ -611,17 +615,30 @@ const startCameraScanner = async () => {
 
   try {
     await stopCameraScanner()
-    const scanner = new Html5Qrcode('qr-camera-reader')
+    const scanner = new Html5Qrcode('qr-camera-reader', {
+      useBarCodeDetectorIfSupported: true
+    })
     html5QrInstance.value = scanner
 
     await scanner.start(
       { facingMode: 'environment' },
       {
-        fps: 10,
-        qrbox: { width: 220, height: 150 }
+        fps: 15,
+        qrbox: (viewfinderWidth, viewfinderHeight) => {
+          const minEdge = Math.min(viewfinderWidth, viewfinderHeight)
+          const boxSize = Math.max(160, Math.floor(minEdge * 0.65))
+          return { width: boxSize, height: boxSize }
+        },
+        disableFlip: false
       },
       async (decodedText) => {
-        if (isExtracting.value) return
+        if (isExtracting.value || qrDetected.value) return
+        qrDetected.value = true
+
+        setTimeout(() => {
+          qrDetected.value = false
+        }, 1200)
+
         if (!continuousScan.value) {
           await stopCameraScanner()
         }
@@ -695,6 +712,7 @@ onBeforeUnmount(() => {
 const openScanTab = async () => {
   lastExtractedInvoice.value = null
   scanError.value = false
+  qrDetected.value = false
   if (currentTab.value === 'scan') {
     await startCameraScanner()
   } else {
@@ -1774,7 +1792,7 @@ const handleLogout = async () => {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 310px;
+  height: 360px;
   position: relative;
   overflow: hidden;
 }
@@ -1794,14 +1812,18 @@ const handleLogout = async () => {
   object-fit: cover !important;
 }
 
+/* 隱藏 html5-qrcode 內建的掃描框，避免與自訂 .focus-frame 重疊出現兩組框 */
+.qr-video-container :deep(#qr-shaded-region) {
+  display: none !important;
+}
+
 .camera-overlay-content {
   position: relative;
   z-index: 2;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  flex: 1;
-  min-height: 286px;
+  height: 100%;
 }
 
 .camera-controls-top {
@@ -1811,7 +1833,7 @@ const handleLogout = async () => {
 }
 
 .icon-circle-btn {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.16);
   border: none;
   color: #ffffff;
   width: 36px;
@@ -1832,15 +1854,22 @@ const handleLogout = async () => {
 
 .focus-frame {
   position: relative;
-  width: 100%;
-  max-width: 360px;
-  height: 185px;
-  margin: 1rem auto;
+  width: 220px;
+  height: 220px;
+  margin: auto;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1rem;
   box-sizing: border-box;
+  border-radius: 16px;
+  transition: box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+/* 偵測到 QR Code 時整框轉為綠色高亮 */
+.focus-frame.is-detected {
+  background-color: rgba(16, 185, 129, 0.18);
+  box-shadow: 0 0 0 3px #10b981, 0 0 24px rgba(16, 185, 129, 0.75);
 }
 
 .corner {
@@ -1849,6 +1878,12 @@ const handleLogout = async () => {
   height: 34px;
   border-color: #ffffff;
   border-style: solid;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.focus-frame.is-detected .corner {
+  border-color: #10b981;
+  transform: scale(1.06);
 }
 
 .top-left {
@@ -1877,16 +1912,24 @@ const handleLogout = async () => {
 
 .camera-hint-box {
   text-align: center;
-  max-width: 260px;
-  background-color: rgba(0, 0, 0, 0.55);
+  max-width: 200px;
+  background-color: rgba(0, 0, 0, 0.65);
   padding: 0.5rem 0.75rem;
   border-radius: 10px;
 }
 
 .hint-text {
   color: #e5e7eb;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   line-height: 1.5;
+  margin: 0;
+}
+
+.detected-text {
+  color: #6ee7b7;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.4;
   margin: 0;
 }
 
