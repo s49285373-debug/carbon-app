@@ -718,24 +718,47 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
   const text = rawPayload.trim()
   if (!text) return result
 
+  const normalizeTokens = (str) => {
+    const decoded = decodeTextSafely(str)
+    return decoded
+      .replaceAll('：', ':')
+      .replaceAll('｜', ':')
+      .replaceAll('|', ':')
+      .replaceAll('/', ':')
+      .replaceAll('\r\n', ':')
+      .replaceAll('\n', ':')
+      .split(':')
+      .map((t) => decodeTextSafely(t).trim())
+      .filter(Boolean)
+  }
+
+  const isValidName = (name) => {
+    const s = String(name || '').trim()
+    if (!s || s.length > 80) return false
+    if (/^\*+$/.test(s)) return false
+    if (/^-?\d+(\.\d+)?$/.test(s)) return false
+    if (/^[A-Za-z0-9+/=]{12,}$/.test(s) && !/[\u4e00-\u9fff]/.test(s)) return false
+    return true
+  }
+
   const parseItemTriplets = (tokens) => {
     const parsedItems = []
     let i = 0
     while (i + 2 < tokens.length) {
       const name = decodeTextSafely(tokens[i] || '').trim()
-      const qtyRaw = String(tokens[i + 1] || '').trim()
-      const priceRaw = String(tokens[i + 2] || '').trim()
+      const qtyRaw = String(tokens[i + 1] || '').trim().replaceAll(',', '')
+      const priceRaw = String(tokens[i + 2] || '').trim().replaceAll(',', '')
       const qty = Number(qtyRaw)
       const priceOrAmt = Number(priceRaw)
 
-      const isMasked = !name || /^\*+$/.test(name) || /^-?\d+(\.\d+)?$/.test(name)
       if (
-        !isMasked &&
+        isValidName(name) &&
         qtyRaw !== '' &&
         priceRaw !== '' &&
         Number.isFinite(qty) &&
         Number.isFinite(priceOrAmt) &&
-        priceOrAmt !== 0
+        priceOrAmt !== 0 &&
+        Math.abs(priceOrAmt) < 1000000
       ) {
         const cleanQty = qty !== 0 ? qty : 1
         const amount = Number((cleanQty * priceOrAmt).toFixed(2))
@@ -751,18 +774,17 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       }
     }
 
-    // 寬鬆備援：若嚴格三元組未抓出品項，嘗試配對「品名 + 金額」
+    // 彈性備援：抓出「品名 + 數字」配對（支援單價/小計直接跟在品名後的格式）
     if (parsedItems.length === 0 && tokens.length >= 2) {
       for (let j = 0; j + 1 < tokens.length; j++) {
         const name = decodeTextSafely(tokens[j] || '').trim()
-        const amt = Number(String(tokens[j + 1] || '').trim())
-        const isMasked = !name || /^\*+$/.test(name) || /^-?\d+(\.\d+)?$/.test(name)
-        if (!isMasked && Number.isFinite(amt) && amt !== 0 && Math.abs(amt) < 1000000) {
+        const numVal = Number(String(tokens[j + 1] || '').trim().replaceAll(',', ''))
+        if (isValidName(name) && Number.isFinite(numVal) && numVal !== 0 && Math.abs(numVal) < 1000000) {
           parsedItems.push({
             item_name: name,
             quantity: 1,
-            unit_price: amt,
-            amount: amt
+            unit_price: numVal,
+            amount: numVal
           })
           j += 1
         }
@@ -774,9 +796,16 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
 
   if (text.startsWith('**')) {
     result.isExtensionOnly = true
-    const decodedBody = decodeTextSafely(text.slice(2))
-    const rawTokens = decodedBody.split(':').map((t) => decodeTextSafely(t).trim()).filter(Boolean)
-    result.items = parseItemTriplets(rawTokens)
+    const rawTokens = normalizeTokens(text.slice(2))
+    let startIdx = 0
+    if (
+      rawTokens.length >= 3 &&
+      /^\d+$/.test(rawTokens[0]) &&
+      /^[012]$/.test(rawTokens[1])
+    ) {
+      startIdx = 2
+    }
+    result.items = parseItemTriplets(rawTokens.slice(startIdx))
     return result
   }
 
@@ -827,8 +856,7 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
     }
 
     if (text.length > 77) {
-      const decodedTail = decodeTextSafely(text.slice(77))
-      const parts = decodedTail.split(':').map((p) => decodeTextSafely(p).trim()).filter(Boolean)
+      const parts = normalizeTokens(text.slice(77))
       if (parts.length > 0 && parts[0].startsWith('**')) {
         parts.shift()
       }
