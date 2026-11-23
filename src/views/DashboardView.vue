@@ -165,8 +165,8 @@
             </div>
 
             <div v-else class="empty-invoice-state">
-              <p>尚未掃描任何發票</p>
-              <button class="primary-action-btn" @click="openScanTab">前往掃描發票</button>
+              <p>{{ isSyncingInvoices ? '正在同步雲端發票...' : '尚未掃描任何發票' }}</p>
+              <button v-if="!isSyncingInvoices" class="primary-action-btn" @click="openScanTab">前往掃描發票</button>
             </div>
           </div>
         </div>
@@ -471,9 +471,10 @@ import jsQR from 'jsqr'
 
 const router = useRouter()
 const nickname = ref('使用者')
+const userPhone = ref('')
 const currentTab = ref('home')
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
 
 const viewportRef = ref(null)
 const videoRef = ref(null)
@@ -485,6 +486,7 @@ const continuousScan = ref(true)
 const invoiceType = ref('electronic')
 const scanError = ref(false)
 const isExtracting = ref(false)
+const isSyncingInvoices = ref(false)
 const lastExtractedInvoice = ref(null)
 const isCameraRunning = ref(false)
 const cameraStatusMsg = ref('')
@@ -516,6 +518,111 @@ const invoiceList = ref([])
 const TRACK_CATEGORY_MAP = {
   FT: '一般消費',
   FG: '餐飲消費'
+}
+
+const normalizeDateOnly = (rawVal) => {
+  const str = String(rawVal || '').trim()
+  if (!str) return '2026/10/30'
+  return str.slice(0, 10).replaceAll('-', '/')
+}
+
+const buildSummaryTitle = (items = [], merchantName = '') => {
+  if (Array.isArray(items) && items.length > 1) {
+    return `${items[0].item_name} 等 ${items.length} 項`
+  }
+  if (Array.isArray(items) && items.length === 1) {
+    return items[0].item_name
+  }
+  return `${merchantName || '一般消費'}（無逐項明細）`
+}
+
+const loadUserSession = () => {
+  const savedNickname = localStorage.getItem('user_nickname')
+  if (savedNickname) {
+    nickname.value = savedNickname
+  }
+
+  let phone = (localStorage.getItem('user_phone') || '').trim()
+  if (!phone) {
+    try {
+      const rawUser = localStorage.getItem('carbon_user') || localStorage.getItem('user')
+      if (rawUser) {
+        const parsed = JSON.parse(rawUser)
+        const obj = parsed?.data || parsed
+        if (obj?.phone) phone = String(obj.phone).trim()
+        if (obj?.nickname && !savedNickname) nickname.value = String(obj.nickname)
+      }
+    } catch {
+      // 忽略解析例外
+    }
+  }
+  userPhone.value = phone
+}
+
+const syncInvoicesFromCloud = async () => {
+  if (!userPhone.value) return
+  isSyncingInvoices.value = true
+  try {
+    const url = `${API_BASE_URL}/api/invoices?phone=${encodeURIComponent(userPhone.value)}`
+    const res = await fetch(url)
+    if (!res.ok) return
+    const result = await res.json()
+    if (result?.status === 'success' && Array.isArray(result.data)) {
+      invoiceList.value = result.data.map((inv) => {
+        const items = Array.isArray(inv.items) ? inv.items : []
+        const formattedDate = normalizeDateOnly(inv.purchase_date)
+        return {
+          ...inv,
+          purchase_date: formattedDate,
+          total_amount: Number(inv.total_amount || 0),
+          carbon_kg: Number(inv.carbon_kg || 0),
+          hidden_carbon_cost: Number(inv.hidden_carbon_cost || 0),
+          summary_title: buildSummaryTitle(items, inv.merchant_name),
+          items
+        }
+      })
+    }
+  } catch (err) {
+    console.warn('同步雲端發票失敗：', err)
+  } finally {
+    isSyncingInvoices.value = false
+  }
+}
+
+const saveInvoiceToCloud = async (record, sourceType = 'qr') => {
+  if (!userPhone.value) return record
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/invoices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: userPhone.value,
+        invoice_number: record.invoice_number,
+        purchase_date: normalizeDateOnly(record.purchase_date),
+        random_code: record.random_code || null,
+        seller_tax_id: record.seller_tax_id || null,
+        merchant_name: record.merchant_name,
+        store_name: record.store_name || null,
+        category_name: record.category_name || '一般消費',
+        total_amount: Number(record.total_amount || 0),
+        carbon_kg: Number(record.carbon_kg || 0),
+        hidden_carbon_cost: Number(record.hidden_carbon_cost || 0),
+        calc_label: record.calc_label || null,
+        source_type: sourceType,
+        items: Array.isArray(record.items) ? record.items : []
+      })
+    })
+    if (res.ok) {
+      const result = await res.json()
+      const savedId = result?.data?.id
+      if (savedId) {
+        return { ...record, id: savedId }
+      }
+    }
+  } catch (err) {
+    console.warn('寫入雲端發票失敗，保留本地紀錄：', err)
+  }
+  return record
 }
 
 const openInvoiceDetail = (inv) => {
@@ -607,7 +714,7 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       const westernYear = Number(roc.slice(0, 3)) + 1911
       const mm = roc.slice(3, 5)
       const dd = roc.slice(5, 7)
-      result.isoDate = `${westernYear}-${mm}-${dd}`
+      result.isoDate = `${westernYear}/${mm}/${dd}`
     }
 
     const rand = text.slice(17, 21)
@@ -688,14 +795,12 @@ const mergeExtensionItemsToLatestInvoice = (extItems) => {
   const addedCount = target.items.length - prevLen
 
   if (addedCount > 0) {
-    target.summary_title =
-      target.items.length > 1
-        ? `${target.items[0].item_name} 等 ${target.items.length} 項`
-        : target.items[0].item_name
+    target.summary_title = buildSummaryTitle(target.items, target.merchant_name)
     target.calc_label = '逐項商品明細推估'
     if (lastExtractedInvoice.value && lastExtractedInvoice.value.invoice_number === target.invoice_number) {
       lastExtractedInvoice.value = { ...target }
     }
+    saveInvoiceToCloud(target, 'qr')
     successToastMsg.value = `已補齊 ${addedCount} 筆明細`
   } else {
     successToastMsg.value = '右側明細已存在或無新增品項'
@@ -1043,16 +1148,19 @@ const toggleTorch = async () => {
 watch(currentTab, async (newTab, oldTab) => {
   if (newTab === 'scan') {
     await startCameraScanner()
-  } else if (oldTab === 'scan') {
-    await stopCameraScanner()
+  } else {
+    if (oldTab === 'scan') {
+      await stopCameraScanner()
+    }
+    if (newTab === 'invoices' || newTab === 'home') {
+      await syncInvoicesFromCloud()
+    }
   }
 })
 
-onMounted(() => {
-  const savedNickname = localStorage.getItem('user_nickname')
-  if (savedNickname) {
-    nickname.value = savedNickname
-  }
+onMounted(async () => {
+  loadUserSession()
+  await syncInvoicesFromCloud()
   if (currentTab.value === 'scan') {
     startCameraScanner()
   }
@@ -1074,7 +1182,17 @@ const openScanTab = async () => {
   }
 }
 
-const deleteInvoice = (targetId) => {
+const deleteInvoice = async (targetId) => {
+  if (userPhone.value && targetId) {
+    try {
+      const url = `${API_BASE_URL}/api/invoices/${encodeURIComponent(
+        targetId
+      )}?phone=${encodeURIComponent(userPhone.value)}`
+      await fetch(url, { method: 'DELETE' })
+    } catch (err) {
+      console.warn('刪除雲端發票失敗：', err)
+    }
+  }
   invoiceList.value = invoiceList.value.filter(item => item.id !== targetId)
   if (selectedInvoiceDetail.value && selectedInvoiceDetail.value.id === targetId) {
     selectedInvoiceDetail.value = null
@@ -1098,15 +1216,15 @@ const filteredInvoices = computed(() => {
     const kw = searchKeyword.value.trim().toLowerCase()
     list = list.filter(
       i =>
-        i.invoice_number.toLowerCase().includes(kw) ||
-        i.merchant_name.toLowerCase().includes(kw) ||
-        i.summary_title.toLowerCase().includes(kw)
+        (i.invoice_number || '').toLowerCase().includes(kw) ||
+        (i.merchant_name || '').toLowerCase().includes(kw) ||
+        (i.summary_title || '').toLowerCase().includes(kw)
     )
   }
 
   list.sort((a, b) => {
-    const dateA = a.purchase_date.replaceAll('/', '').replaceAll('-', '')
-    const dateB = b.purchase_date.replaceAll('/', '').replaceAll('-', '')
+    const dateA = String(a.purchase_date || '').replaceAll('/', '').replaceAll('-', '')
+    const dateB = String(b.purchase_date || '').replaceAll('/', '').replaceAll('-', '')
     return sortDesc.value ? dateB.localeCompare(dateA) : dateA.localeCompare(dateB)
   })
 
@@ -1152,12 +1270,6 @@ const alertHelp = () => {
   alert('【掃描說明】\n1. 左右 QR Code 可同時入鏡合併；先左後右或先右後左（間隔約 0.5～1.5 秒內）也會自動配對補齊明細。\n2. 掃描完成會留在相機畫面，方便連續掃描或點「前往發票存摺」查看。')
 }
 
-const normalizeDateOnly = (rawVal) => {
-  const str = String(rawVal || '').trim()
-  if (!str) return '2026/10/30'
-  return str.slice(0, 10).replaceAll('-', '/')
-}
-
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
   const cleanNum = (
     backendData.invoice_number ||
@@ -1198,7 +1310,7 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
   const merchantName = `${storeDisplay} · ${categoryName}`
 
   const formattedDate = normalizeDateOnly(
-    inputMeta.invoiceDate || backendData.purchase_date || backendData.purchase_datetime || '2026-10-30'
+    inputMeta.invoiceDate || backendData.purchase_date || backendData.purchase_datetime || '2026/10/30'
   )
 
   const rawBackendItems = Array.isArray(backendData.items) ? backendData.items : []
@@ -1227,12 +1339,7 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
       ? '逐項商品明細推估'
       : `無逐項明細，套用預設「${categoryName}」係數推估`
 
-  const summaryTitle =
-    items.length > 1
-      ? `${items[0].item_name} 等 ${items.length} 項`
-      : items.length === 1
-      ? items[0].item_name
-      : `${merchantName}（無逐項明細）`
+  const summaryTitle = buildSummaryTitle(items, merchantName)
 
   const estimatedCarbon =
     backendData.carbon_kg !== undefined && Number(backendData.carbon_kg) > 0
@@ -1245,7 +1352,7 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
       : Number((estimatedCarbon * 3.2).toFixed(2))
 
   return {
-    id: backendData.invoice_id || Date.now() + Math.random(),
+    id: backendData.invoice_id || backendData.id || Date.now() + Math.random(),
     invoice_number: cleanNum,
     merchant_name: merchantName,
     store_name: storeDisplay,
@@ -1266,7 +1373,10 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
 const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') => {
   isExtracting.value = true
   scanError.value = false
-  const userPhone = localStorage.getItem('user_phone') || ''
+  if (!userPhone.value) {
+    loadUserSession()
+  }
+  const phoneToUse = userPhone.value || localStorage.getItem('user_phone') || ''
 
   let backendData = {}
   try {
@@ -1274,7 +1384,7 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        phone: userPhone,
+        phone: phoneToUse,
         invoice_type: inputMeta.invoiceType || invoiceType.value,
         source_type: sourceType,
         qr_raw_data: rawPayload
@@ -1287,7 +1397,7 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
   } catch (err) {
     console.warn('後端未回應，改用前端 QR 解析與預設類別係數推估：', err)
   } finally {
-    const record = resolveInvoiceRecord(inputMeta, backendData)
+    let record = resolveInvoiceRecord(inputMeta, backendData)
 
     const alreadyExists = invoiceList.value.some(
       inv => inv.invoice_number === record.invoice_number
@@ -1300,6 +1410,8 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
       isExtracting.value = false
       return
     }
+
+    record = await saveInvoiceToCloud(record, sourceType)
 
     lastExtractedInvoice.value = record
     invoiceList.value.unshift(record)
@@ -1318,6 +1430,8 @@ const handleLogout = async () => {
     localStorage.removeItem('user_nickname')
     localStorage.removeItem('user_phone')
     localStorage.removeItem('user_barcode')
+    localStorage.removeItem('carbon_user')
+    localStorage.removeItem('user')
     router.push('/login')
   }
 }
