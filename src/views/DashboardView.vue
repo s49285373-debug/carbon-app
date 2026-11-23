@@ -129,7 +129,7 @@
                 class="invoice-record-item"
                 v-for="inv in filteredInvoices"
                 :key="inv.id"
-                @click="selectedInvoiceDetail = inv"
+                @click="openInvoiceDetail(inv)"
               >
                 <div class="record-top-meta">
                   <span>{{ inv.purchase_datetime || inv.purchase_date }}</span>
@@ -359,13 +359,21 @@
               </div>
 
               <div class="input-group">
-                <label>發票日期 <span class="req-star">*</span></label>
-                <input
-                  type="text"
-                  v-model="manualForm.invoiceDate"
-                  placeholder="請輸入發票日期（例如：2026-10-30）"
-                  class="form-input"
-                />
+                <label>發票日期與時間 <span class="req-star">*</span></label>
+                <div class="split-datetime-row">
+                  <input
+                    type="text"
+                    v-model="manualForm.invoiceDate"
+                    placeholder="日期（例如：2026-09-30）"
+                    class="form-input"
+                  />
+                  <input
+                    type="text"
+                    v-model="manualForm.invoiceTime"
+                    placeholder="時間（例如：12:39:51）"
+                    class="form-input"
+                  />
+                </div>
               </div>
 
               <div class="input-group">
@@ -480,7 +488,7 @@
 
     </main>
 
-    <!-- 發票明細檢視彈窗 -->
+    <!-- 發票明細檢視與時間補填彈窗 -->
     <div v-if="selectedInvoiceDetail" class="manual-modal-overlay" @click.self="selectedInvoiceDetail = null">
       <div class="manual-modal-card">
         <h4>🧾 發票消費與碳排明細</h4>
@@ -489,6 +497,17 @@
           <p><strong>推估方式：</strong>{{ selectedInvoiceDetail.calc_label }}</p>
           <p><strong>店家／類別：</strong>{{ selectedInvoiceDetail.merchant_name }}</p>
           <p><strong>購買時間：</strong>{{ selectedInvoiceDetail.purchase_datetime || selectedInvoiceDetail.purchase_date }}</p>
+          <div class="inline-time-edit-row">
+            <input
+              type="text"
+              v-model="editingDetailDatetime"
+              placeholder="YYYY-MM-DD HH:mm:ss"
+              class="inline-time-input"
+            />
+            <button type="button" class="inline-time-save-btn" @click="saveDetailDatetime">
+              更新時間
+            </button>
+          </div>
           <p><strong>隨機碼：</strong>{{ selectedInvoiceDetail.random_code || '—' }}</p>
           <p><strong>登錄方式：</strong>{{ selectedInvoiceDetail.source_type === 'manual' ? '手動輸入' : '電子發票' }}</p>
           <p><strong>推估碳排：</strong>{{ selectedInvoiceDetail.carbon_kg }} kg CO₂e（隱形碳成本 {{ selectedInvoiceDetail.hidden_carbon_cost }} 元）</p>
@@ -582,13 +601,14 @@ const showManualModal = ref(false)
 const manualForm = reactive({
   invoiceType: 'electronic',
   invoiceDate: '',
+  invoiceTime: '00:00:00',
   trackCode: '',
   serialNumber: '',
   totalAmount: null,
   randomCode: ''
 })
 
-// 發票存摺狀態
+// 發票存摺與明細時間編輯狀態
 const periods = ['115年07–08月', '115年09–10月', '115年11–12月']
 const currentPeriodIndex = ref(1)
 const showSearchBar = ref(false)
@@ -596,7 +616,35 @@ const searchKeyword = ref('')
 const sourceFilter = ref('all')
 const sortDesc = ref(true)
 const selectedInvoiceDetail = ref(null)
+const editingDetailDatetime = ref('')
 const invoiceList = ref([])
+
+const openInvoiceDetail = (inv) => {
+  selectedInvoiceDetail.value = inv
+  editingDetailDatetime.value = inv.purchase_datetime || `${inv.purchase_date.replaceAll('/', '-')} 00:00:00`
+}
+
+const saveDetailDatetime = () => {
+  if (!selectedInvoiceDetail.value) return
+  const trimmed = editingDetailDatetime.value.trim()
+  if (!trimmed) return
+
+  const normalized = trimmed.replaceAll('/', '-')
+  const datePart = normalized.slice(0, 10).replaceAll('-', '/')
+
+  selectedInvoiceDetail.value.purchase_datetime = normalized
+  selectedInvoiceDetail.value.purchase_date = datePart
+
+  const target = invoiceList.value.find(item => item.id === selectedInvoiceDetail.value.id)
+  if (target) {
+    target.purchase_datetime = normalized
+    target.purchase_date = datePart
+  }
+  if (lastExtractedInvoice.value && lastExtractedInvoice.value.id === selectedInvoiceDetail.value.id) {
+    lastExtractedInvoice.value.purchase_datetime = normalized
+    lastExtractedInvoice.value.purchase_date = datePart
+  }
+}
 
 const isManualFormValid = computed(() => {
   return (
@@ -611,6 +659,7 @@ const isManualFormValid = computed(() => {
 const openManualModal = () => {
   manualForm.invoiceType = invoiceType.value
   manualForm.invoiceDate = ''
+  manualForm.invoiceTime = '00:00:00'
   manualForm.trackCode = ''
   manualForm.serialNumber = ''
   manualForm.totalAmount = null
@@ -1164,7 +1213,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描說明】\n1. 先將左側主 QR Code 置於中央對焦框完成建檔。\n2. 若右側延伸 QR Code 有額外品項，再掃描右側可自動補齊明細。\n3. 若發票已登錄過，中央會提示「發票已存在」。')
+  alert('【掃描說明】\n1. 先將左側主 QR Code 置於中央對焦框完成建檔。\n2. 若右側延伸 QR Code 有額外品項，再掃描右側可自動補齊明細。\n3. 由於 QR Code 不含時分秒，需要精確到秒時可在發票明細內直接補填時間。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr') => {
@@ -1189,10 +1238,12 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
     (sellerBan ? `賣方 ${sellerBan}` : `預設${categoryName}推估（${cleanNum.slice(0, 2)}字軌）`)
 
   const inputDateClean = (inputMeta.invoiceDate || '').trim()
+  const inputDatetimeClean = (inputMeta.purchaseDatetime || '').trim()
   const backendDt = (backendData.purchase_datetime || '').trim()
   const isBackendPlaceholderTime = backendDt.endsWith('19:34:37')
 
   const rawDatetime =
+    inputDatetimeClean ||
     (!isBackendPlaceholderTime && backendDt) ||
     (inputDateClean
       ? `${inputDateClean.replaceAll('/', '-')} 00:00:00`
@@ -1346,9 +1397,16 @@ const submitManualInvoice = () => {
   const track = manualForm.trackCode.trim().toUpperCase()
   const serial = manualForm.serialNumber.trim()
   const fullNumber = `${track}${serial}`
+  const cleanDate = manualForm.invoiceDate.trim().replaceAll('/', '-')
+  const cleanTime = (manualForm.invoiceTime || '00:00:00').trim()
+  const fullDatetime = /^\d{2}:\d{2}(:\d{2})?$/.test(cleanTime)
+    ? `${cleanDate} ${cleanTime.length === 5 ? `${cleanTime}:00` : cleanTime}`
+    : `${cleanDate} 00:00:00`
+
   const meta = {
     invoiceType: manualForm.invoiceType,
-    invoiceDate: manualForm.invoiceDate.trim(),
+    invoiceDate: cleanDate,
+    purchaseDatetime: fullDatetime,
     invoiceNumber: fullNumber,
     totalAmount: Number(manualForm.totalAmount),
     randomCode: manualForm.randomCode.trim()
@@ -1955,11 +2013,48 @@ const handleLogout = async () => {
   font-size: 0.88rem;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.4rem;
 }
 
 .detail-meta-box p {
   margin: 0;
+}
+
+.inline-time-edit-row {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  margin: 0.15rem 0;
+}
+
+.inline-time-input {
+  flex: 1;
+  padding: 0.42rem 0.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.inline-time-input:focus {
+  border-color: #059669;
+}
+
+.inline-time-save-btn {
+  background-color: #059669;
+  color: #ffffff;
+  border: none;
+  padding: 0.44rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.inline-time-save-btn:hover {
+  background-color: #047857;
 }
 
 .detail-items-list {
@@ -2664,6 +2759,12 @@ input:checked + .slider:before { transform: translateX(20px); }
 .form-select {
   background-color: #ffffff;
   color: #111827;
+}
+
+.split-datetime-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
 }
 
 .split-code-row {
