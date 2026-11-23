@@ -521,6 +521,8 @@ const TRACK_CATEGORY_MAP = {
   FG: '餐飲消費'
 }
 
+const NON_CARBON_KEYWORDS = ['代收', '代繳', '手續費', '跨行', '物流費', '運費']
+
 const normalizeDateOnly = (rawVal) => {
   const str = String(rawVal || '').trim()
   if (!str) return '2026/10/30'
@@ -727,13 +729,20 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       const qty = Number(qtyRaw)
       const priceOrAmt = Number(priceRaw)
 
-      const isMasked = !name || /^\*+$/.test(name) || /^\d+$/.test(name)
-      if (!isMasked && qtyRaw !== '' && priceRaw !== '' && Number.isFinite(qty) && Number.isFinite(priceOrAmt) && priceOrAmt !== 0) {
+      const isMasked = !name || /^\*+$/.test(name) || /^-?\d+(\.\d+)?$/.test(name)
+      if (
+        !isMasked &&
+        qtyRaw !== '' &&
+        priceRaw !== '' &&
+        Number.isFinite(qty) &&
+        Number.isFinite(priceOrAmt) &&
+        priceOrAmt !== 0
+      ) {
         const cleanQty = qty !== 0 ? qty : 1
         const amount = Number((cleanQty * priceOrAmt).toFixed(2))
         parsedItems.push({
           item_name: name,
-          quantity: cleanQty,
+          quantity: Math.abs(cleanQty),
           unit_price: priceOrAmt,
           amount
         })
@@ -874,7 +883,6 @@ const scheduleFlushForLeftQr = () => {
   const currentCount = (pendingLeftQr.parsed.items || []).length + pendingRightItems.length
   const hasAllExpectedItems = expectedCount > 0 && currentCount >= expectedCount
 
-  // 已取得預期全數品項則 400ms 內送出；若預期還有右側明細，先等 4000ms 等右碼入鏡（切換發票或離開掃描頁也會自動送出）
   const delayMs = hasAllExpectedItems ? 400 : 4000
 
   if (!hasAllExpectedItems) {
@@ -1305,7 +1313,17 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描說明】\n1. 左右 QR Code 可同時入鏡合併；若分開掃描，系統會等待另一側 QR Code 補齊明細後再寫入。\n2. 掃描完成會留在相機畫面，方便連續掃描或點「前往發票存摺」查看。')
+  alert('【掃描說明】\n1. 左右 QR Code 可同時入鏡合併；若分開掃描，系統會等待另一側 QR Code 補齊明細後再寫入。\n2. 折扣列不扣減碳排；純代收與手續費不列入實物碳排。')
+}
+
+const estimateFallbackItemCarbon = (itemName, amount) => {
+  const amt = Number(amount || 0)
+  if (amt <= 0) return 0
+  const name = String(itemName || '')
+  if (NON_CARBON_KEYWORDS.some((kw) => name.includes(kw))) {
+    return 0
+  }
+  return Number((amt * 0.0015).toFixed(4))
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
@@ -1355,22 +1373,35 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
   const validBackendItems = rawBackendItems.filter((it) => {
     const name = String(it.item_name || '').trim()
     const amt = Number(it.amount)
-    const isMasked = !name || /^\*+$/.test(name) || /^\d+$/.test(name)
+    const isMasked = !name || /^\*+$/.test(name) || /^-?\d+(\.\d+)?$/.test(name)
     return !isMasked && Number.isFinite(amt) && amt !== 0
   })
 
   const inputItems = Array.isArray(inputMeta.items) ? inputMeta.items : []
-  const items = inputItems.length > 0 ? inputItems : mergeUniqueItems(validBackendItems, [])
-  const itemsSum = items.reduce((s, it) => s + Number(it.amount || 0), 0)
+  const items = inputItems.length > 0 ? [...inputItems] : mergeUniqueItems(validBackendItems, [])
+  const rawItemsSum = Number(
+    items.reduce((s, it) => s + Number(it.amount || 0), 0).toFixed(2)
+  )
 
   const totalAmount =
     Number(inputMeta.totalAmount) > 0
       ? Number(inputMeta.totalAmount)
       : Number(backendData.total_amount) > 0
       ? Number(backendData.total_amount)
-      : itemsSum !== 0
-      ? itemsSum
+      : rawItemsSum !== 0
+      ? rawItemsSum
       : 0
+
+  if (items.length > 0 && totalAmount > 0 && Math.abs(totalAmount - rawItemsSum) >= 1) {
+    const diff = Number((totalAmount - rawItemsSum).toFixed(2))
+    items.push({
+      item_name: diff < 0 ? '促銷折扣／優惠折讓' : '其他加項／差額',
+      quantity: 1,
+      unit_price: diff,
+      amount: diff,
+      carbon_kg: 0
+    })
+  }
 
   const calcLabel =
     items.length > 0
@@ -1379,13 +1410,28 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
 
   const summaryTitle = buildSummaryTitle(items, merchantName)
 
+  const computedItemsCarbon = Number(
+    Math.max(
+      items.reduce((s, it) => {
+        const itemCarbon =
+          it.carbon_kg !== undefined
+            ? Number(it.carbon_kg)
+            : estimateFallbackItemCarbon(it.item_name, it.amount)
+        return s + (Number.isFinite(itemCarbon) && itemCarbon > 0 ? itemCarbon : 0)
+      }, 0),
+      0
+    ).toFixed(2)
+  )
+
   const estimatedCarbon =
-    backendData.carbon_kg !== undefined && Number(backendData.carbon_kg) > 0
+    items.length > 0
+      ? computedItemsCarbon
+      : backendData.carbon_kg !== undefined && Number(backendData.carbon_kg) >= 0
       ? Number(Number(backendData.carbon_kg).toFixed(2))
       : Number((Math.max(totalAmount, 0) * 0.0015).toFixed(2))
 
   const hiddenCost =
-    backendData.hidden_carbon_cost !== undefined && Number(backendData.hidden_carbon_cost) > 0
+    backendData.hidden_carbon_cost !== undefined && items.length === 0
       ? Number(Number(backendData.hidden_carbon_cost).toFixed(2))
       : Number((estimatedCarbon * 3.2).toFixed(2))
 
