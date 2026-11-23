@@ -321,7 +321,7 @@
             </div>
 
             <p class="scanner-footer-note">
-              左右 QR Code 可同時入鏡合併建檔；若分開掃描，系統會等待另一側 QR Code 補齊明細後再寫入，避免漏項或串張。
+              左右 QR Code 可同時入鏡合併建檔；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。
             </p>
           </div>
 
@@ -497,15 +497,14 @@ const duplicateAlertMsg = ref('')
 const successToastMsg = ref('')
 let scanLoopTimer = null
 let qrPulseTimer = null
-let lastRawScannedText = ''
-let lastRawScannedAt = 0
 
 let pendingLeftQr = null
 let pendingRightItems = []
 let pendingRightAt = 0
 let mergeFlushTimer = null
 let rightFallbackTimer = null
-const RIGHT_QR_HOLD_MS = 10000
+const RIGHT_QR_HOLD_MS = 6000
+const LEFT_WAIT_RIGHT_MS = 1200
 
 const periods = ['115年07–08月', '115年09–10月', '115年11–12月']
 const currentPeriodIndex = ref(2)
@@ -539,7 +538,6 @@ const buildSummaryTitle = (items = [], merchantName = '') => {
   return `${merchantName || '一般消費'}（無逐項明細）`
 }
 
-// 通用的 Base64 / UTF-8 / Big5 自動解碼函式（不寫死任何商品名稱）
 const decodeTextSafely = (str) => {
   const cleaned = String(str || '').trim()
   if (!cleaned) return ''
@@ -884,36 +882,88 @@ const scheduleFlushForLeftQr = () => {
   const currentCount = (pendingLeftQr.parsed.items || []).length + pendingRightItems.length
   const hasAllExpectedItems = expectedCount > 0 && currentCount >= expectedCount
 
-  const delayMs = hasAllExpectedItems ? 400 : 4000
-
-  if (!hasAllExpectedItems) {
-    successToastMsg.value = `已掃描 ${pendingLeftQr.parsed.invoiceNumber}，請掃描右側明細 QR`
+  if (hasAllExpectedItems || pendingRightItems.length > 0) {
+    flushPendingInvoice()
+    return
   }
 
   mergeFlushTimer = setTimeout(() => {
     flushPendingInvoice()
-  }, delayMs)
+  }, LEFT_WAIT_RIGHT_MS)
 }
 
-const handleDecodedQrText = async (decodedText) => {
-  if (!decodedText || typeof decodedText !== 'string') return
-  const cleanText = decodedText.trim()
-  if (!cleanText) return
+// 一次處理同一幀抓到的所有 QR 文字：若同時含左碼與右碼，直接合併建檔
+const handleFrameQrTexts = async (rawTexts = []) => {
+  const uniqueTexts = Array.from(
+    new Set((rawTexts || []).map((t) => String(t || '').trim()).filter(Boolean))
+  )
+  if (uniqueTexts.length === 0) return
 
   triggerGreenPulse()
 
-  const now = Date.now()
-  if (cleanText === lastRawScannedText && now - lastRawScannedAt < 1000) {
+  const leftEntries = []
+  const rightEntries = []
+
+  for (const text of uniqueTexts) {
+    const parsed = parseTaiwanInvoiceQr(text)
+    if (parsed.isExtensionOnly || text.startsWith('**')) {
+      rightEntries.push({ rawText: text, parsed })
+    } else if (parsed.invoiceNumber && /^[A-Z]{2}\d{8}$/.test(parsed.invoiceNumber)) {
+      leftEntries.push({ rawText: text, parsed })
+    }
+  }
+
+  // 若同一幀同時掃到左碼與右碼，直接合併處理
+  if (leftEntries.length > 0 && rightEntries.length > 0) {
+    clearPendingTimersOnly()
+    const mainLeft = leftEntries[0]
+    const exists = invoiceList.value.some(
+      (inv) => inv.invoice_number === mainLeft.parsed.invoiceNumber
+    )
+    if (exists) {
+      pendingLeftQr = null
+      pendingRightItems = []
+      pendingRightAt = 0
+      duplicateAlertMsg.value = '發票已存在'
+      setTimeout(() => {
+        duplicateAlertMsg.value = ''
+      }, 2200)
+      return
+    }
+
+    let combinedRightItems = [...pendingRightItems]
+    for (const r of rightEntries) {
+      combinedRightItems = mergeUniqueItems(combinedRightItems, r.parsed.items || [])
+    }
+    const mergedItems = mergeUniqueItems(mainLeft.parsed.items || [], combinedRightItems)
+
+    pendingLeftQr = null
+    pendingRightItems = []
+    pendingRightAt = 0
+
+    await processInvoiceLookup(
+      {
+        invoiceType: invoiceType.value,
+        invoiceNumber: mainLeft.parsed.invoiceNumber,
+        invoiceDate: mainLeft.parsed.isoDate,
+        randomCode: mainLeft.parsed.randomCode,
+        totalAmount: mainLeft.parsed.totalAmount,
+        merchantName: mainLeft.parsed.merchantName,
+        sellerBan: mainLeft.parsed.sellerBan,
+        items: mergedItems
+      },
+      mainLeft.rawText,
+      'qr'
+    )
     return
   }
-  lastRawScannedText = cleanText
-  lastRawScannedAt = now
 
-  const parsedQr = parseTaiwanInvoiceQr(cleanText)
-
-  if (parsedQr.isExtensionOnly || cleanText.startsWith('**')) {
-    pendingRightItems = mergeUniqueItems(pendingRightItems, parsedQr.items)
-    pendingRightAt = now
+  // 僅掃到右碼
+  if (rightEntries.length > 0) {
+    for (const r of rightEntries) {
+      pendingRightItems = mergeUniqueItems(pendingRightItems, r.parsed.items || [])
+    }
+    pendingRightAt = Date.now()
 
     if (pendingLeftQr) {
       await flushPendingInvoice()
@@ -925,17 +975,17 @@ const handleDecodedQrText = async (decodedText) => {
       if (!pendingLeftQr && pendingRightItems.length > 0) {
         pendingRightItems = []
         pendingRightAt = 0
-        successToastMsg.value = '請先掃描左側主 QR Code'
-        setTimeout(() => {
-          successToastMsg.value = ''
-        }, 2000)
       }
     }, RIGHT_QR_HOLD_MS)
     return
   }
 
-  if (parsedQr.invoiceNumber && /^[A-Z]{2}\d{8}$/.test(parsedQr.invoiceNumber)) {
-    const exists = invoiceList.value.some(inv => inv.invoice_number === parsedQr.invoiceNumber)
+  // 僅掃到左碼
+  if (leftEntries.length > 0) {
+    const mainLeft = leftEntries[0]
+    const exists = invoiceList.value.some(
+      (inv) => inv.invoice_number === mainLeft.parsed.invoiceNumber
+    )
     if (exists) {
       duplicateAlertMsg.value = '發票已存在'
       setTimeout(() => {
@@ -943,14 +993,14 @@ const handleDecodedQrText = async (decodedText) => {
       }, 2200)
       return
     }
-  }
 
-  if (pendingLeftQr && pendingLeftQr.parsed.invoiceNumber !== parsedQr.invoiceNumber) {
-    await flushPendingInvoice()
-  }
+    if (pendingLeftQr && pendingLeftQr.parsed.invoiceNumber !== mainLeft.parsed.invoiceNumber) {
+      await flushPendingInvoice()
+    }
 
-  pendingLeftQr = { rawText: cleanText, parsed: parsedQr }
-  scheduleFlushForLeftQr()
+    pendingLeftQr = mainLeft
+    scheduleFlushForLeftQr()
+  }
 }
 
 const computeViewportBoxStyle = (x, y, w, h, srcW, srcH, viewport) => {
@@ -1081,12 +1131,16 @@ const startNativeQrLoop = () => {
     }
 
     try {
+      // 同時裁切左半邊與右半邊，盡量在同幀抓齊雙 QR Code
+      const hasLeft = hits.some((h) => !h.rawValue.startsWith('**'))
+      const hasRight = hits.some((h) => h.rawValue.startsWith('**'))
+
+      if (!hasLeft || !hasRight) {
+        pushHits(decodeCanvasFrame(video, canvas, { x: 0, y: 0.12, w: 0.65, h: 0.76 }))
+        pushHits(decodeCanvasFrame(video, canvas, { x: 0.35, y: 0.12, w: 0.65, h: 0.76 }))
+      }
       if (hits.length === 0) {
         pushHits(decodeCanvasFrame(video, canvas, { x: 0, y: 0, w: 1, h: 1 }))
-      }
-      if (hits.length < 2) {
-        pushHits(decodeCanvasFrame(video, canvas, { x: 0, y: 0.1, w: 0.58, h: 0.8 }))
-        pushHits(decodeCanvasFrame(video, canvas, { x: 0.42, y: 0.1, w: 0.58, h: 0.8 }))
       }
 
       if (hits.length > 0) {
@@ -1102,16 +1156,14 @@ const startNativeQrLoop = () => {
             viewport
           )
         }))
-        for (const h of hits) {
-          await handleDecodedQrText(h.rawValue)
-        }
+        await handleFrameQrTexts(hits.map((h) => h.rawValue))
       } else {
         detectedBoxes.value = []
       }
     } catch {
       // 忽略單幀例外
     }
-  }, 200)
+  }, 220)
 }
 
 const stopCameraScanner = async () => {
@@ -1314,7 +1366,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描說明】\n1. 左右 QR Code 可同時入鏡合併；若分開掃描，系統會等待另一側 QR Code 補齊明細後再寫入。\n2. 折扣列不扣減碳排；純代收與手續費不列入實物碳排。')
+  alert('【掃描說明】\n1. 左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 折扣列不扣減碳排；純代收與手續費不列入實物碳排。')
 }
 
 const estimateFallbackItemCarbon = (itemName, amount) => {
