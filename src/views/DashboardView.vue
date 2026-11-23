@@ -80,14 +80,12 @@
       <!-- 2. 【發票存摺】分頁內容 -->
       <template v-if="currentTab === 'invoices'">
         <div class="passbook-wrapper">
-          <!-- 頂部標題列 -->
           <div class="passbook-top-bar">
             <button class="passbook-icon-btn" @click="toggleSearchInput" title="搜尋發票、地點或品項">🔍</button>
             <span class="passbook-bar-title">發票存摺</span>
             <button class="passbook-icon-btn" @click="openScanTab" title="新增掃描發票">＋</button>
           </div>
 
-          <!-- 搜尋列（點擊放大鏡展開） -->
           <div v-if="showSearchBar" class="passbook-search-bar">
             <input
               type="text"
@@ -97,16 +95,13 @@
             />
           </div>
 
-          <!-- 白色主體內容區 -->
           <div class="passbook-body">
-            <!-- 期別左右切換器 -->
             <div class="period-selector">
               <button class="period-arrow-btn" @click="prevPeriod">&lt;</button>
               <span class="period-text">{{ periods[currentPeriodIndex] }}</span>
               <button class="period-arrow-btn" @click="nextPeriod">&gt;</button>
             </div>
 
-            <!-- 本期消費與碳足跡摘要卡片 -->
             <div class="period-summary-card">
               <span class="summary-corner-badge">本期盤查中</span>
               <div class="summary-subtitle">本期消費總金額</div>
@@ -120,7 +115,6 @@
               </div>
             </div>
 
-            <!-- 篩選與排序操作列 -->
             <div class="passbook-filter-row">
               <button class="filter-pill-btn" @click="cycleSourceFilter">
                 🧾 {{ sourceFilterLabel }}
@@ -130,7 +124,6 @@
               </button>
             </div>
 
-            <!-- 發票明細清單 -->
             <div class="invoice-record-list" v-if="filteredInvoices.length > 0">
               <div
                 class="invoice-record-item"
@@ -188,7 +181,6 @@
       <template v-if="currentTab === 'scan'">
         <div class="scanner-wrapper">
 
-          <!-- 頂部功能列 (左側返回、中間標題、右側手動輸入) -->
           <div class="scanner-top-bar">
             <button class="scanner-text-btn" @click="currentTab = 'home'">&lt; 返回</button>
             <span class="scanner-bar-title">掃描發票</span>
@@ -197,7 +189,14 @@
 
           <!-- 中間滿版相機取景與動態 QR 綠框定位區 -->
           <div class="camera-viewport" ref="viewportRef">
-            <div id="qr-camera-reader" class="qr-video-container"></div>
+            <video
+              ref="videoRef"
+              class="native-camera-video"
+              autoplay
+              playsinline
+              webkit-playsinline
+              muted
+            ></video>
 
             <!-- 即時追蹤 QR Code 實際座標的動態綠色方框層 -->
             <div class="qr-bounding-layer">
@@ -229,25 +228,22 @@
                 </button>
               </div>
 
-              <!-- 中央白色四角對焦框（僅一組，避免重複框線） -->
+              <!-- 中央白色四角對焦框 -->
               <div class="focus-frame" :class="{ 'is-detected': detectedBoxes.length > 0 || qrPulseDetected }">
                 <span class="corner top-left"></span>
                 <span class="corner top-right"></span>
                 <span class="corner bottom-left"></span>
                 <span class="corner bottom-right"></span>
 
-                <!-- 重複發票提示：「! 發票已存在」 -->
                 <div v-if="duplicateAlertMsg" class="duplicate-pill-toast">
                   <span class="dup-icon">!</span>
                   <span>{{ duplicateAlertMsg }}</span>
                 </div>
 
-                <!-- 掃描成功即時提示膠囊 -->
                 <div v-else-if="successToastMsg" class="success-pill-toast">
                   <span>✅ {{ successToastMsg }}</span>
                 </div>
 
-                <!-- 載入中／錯誤提示 -->
                 <div class="camera-hint-box" v-else-if="isExtracting || scanError || !isCameraRunning">
                   <p v-if="isExtracting" class="hint-text">⏳ 正在解析發票與碳足跡...</p>
                   <div v-else-if="scanError" class="error-hint-box">
@@ -291,7 +287,6 @@
               </button>
             </div>
 
-            <!-- 僅在實際掃描或手動輸入完成後，才顯示已擷取發票預覽 -->
             <div v-if="lastExtractedInvoice" class="latest-extracted-box">
               <div class="latest-extracted-header">
                 <span>
@@ -312,7 +307,6 @@
               </div>
             </div>
 
-            <!-- 尚未掃描或輸入前，顯示發票 QR Code 掃描示意圖框 -->
             <div class="invoice-guide-illustration" v-else>
               <div class="guide-corners">
                 <div class="mock-receipt" v-if="invoiceType === 'electronic'">
@@ -544,7 +538,6 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Html5Qrcode } from 'html5-qrcode'
 
 const router = useRouter()
 const nickname = ref('使用者')
@@ -552,8 +545,10 @@ const currentTab = ref('home')
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
-// 掃描器與相機狀態
+// 原生相機與掃描狀態
 const viewportRef = ref(null)
+const videoRef = ref(null)
+const mediaStream = ref(null)
 const flashOn = ref(false)
 const soundOn = ref(true)
 const continuousScan = ref(true)
@@ -561,7 +556,6 @@ const invoiceType = ref('electronic')
 const scanError = ref(false)
 const isExtracting = ref(false)
 const lastExtractedInvoice = ref(null)
-const html5QrInstance = ref(null)
 const isCameraRunning = ref(false)
 const cameraStatusMsg = ref('')
 
@@ -570,7 +564,7 @@ const detectedBoxes = ref([])
 const qrPulseDetected = ref(false)
 const duplicateAlertMsg = ref('')
 const successToastMsg = ref('')
-let boxTrackTimer = null
+let scanLoopTimer = null
 let qrPulseTimer = null
 let lastRawScannedText = ''
 let lastRawScannedAt = 0
@@ -624,10 +618,10 @@ const triggerGreenPulse = () => {
   }, 1100)
 }
 
-const stopQrBoxTracker = () => {
-  if (boxTrackTimer) {
-    clearInterval(boxTrackTimer)
-    boxTrackTimer = null
+const stopScanLoop = () => {
+  if (scanLoopTimer) {
+    clearInterval(scanLoopTimer)
+    scanLoopTimer = null
   }
   if (qrPulseTimer) {
     clearTimeout(qrPulseTimer)
@@ -637,7 +631,6 @@ const stopQrBoxTracker = () => {
   qrPulseDetected.value = false
 }
 
-// 處理辨識到的 QR 文字（共用 html5-qrcode 與原生 BarcodeDetector）
 const handleDecodedQrText = async (decodedText) => {
   if (!decodedText || typeof decodedText !== 'string') return
   const cleanText = decodedText.trim()
@@ -676,53 +669,24 @@ const handleDecodedQrText = async (decodedText) => {
   )
 }
 
-// 強制覆寫 html5-qrcode 動態寫入的行內樣式，並隱藏 Scanner paused 字樣與遮罩
-const forceFullBleedVideo = () => {
-  const reader = document.getElementById('qr-camera-reader')
-  if (!reader) return
-
-  reader.style.cssText =
-    'position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; overflow: hidden !important; background: #000 !important;'
-
-  reader.querySelectorAll('div, table, tbody, tr, td').forEach((el) => {
-    const txt = (el.textContent || '').trim()
-    if (el.id === 'qr-shaded-region' || txt === 'Scanner paused') {
-      el.style.cssText = 'display: none !important;'
-    } else {
-      el.style.cssText =
-        'position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; padding: 0 !important; margin: 0 !important; border: none !important;'
-    }
-  })
-
-  const video = reader.querySelector('video')
-  if (video) {
-    video.setAttribute('playsinline', 'true')
-    video.setAttribute('webkit-playsinline', 'true')
-    video.muted = true
-    if (video.paused) {
-      video.play().catch(() => {})
-    }
-    video.style.cssText =
-      'position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; min-width: 100% !important; min-height: 100% !important; object-fit: cover !important; transform: none !important;'
+const startNativeQrLoop = () => {
+  stopScanLoop()
+  if (typeof window === 'undefined' || !('BarcodeDetector' in window)) {
+    cameraStatusMsg.value = '目前瀏覽器不支援原生 BarcodeDetector，若無法自動辨識請點「手動輸入」或「模擬成功掃描解析」'
+    return
   }
-}
-
-// 原生 BarcodeDetector 即時偵測 QR Code 座標、畫出綠框並直接觸發解碼
-const startQrBoxTracker = () => {
-  stopQrBoxTracker()
-  if (typeof window === 'undefined' || !('BarcodeDetector' in window)) return
 
   let detector = null
   try {
     detector = new window.BarcodeDetector({ formats: ['qr_code'] })
   } catch {
+    cameraStatusMsg.value = '此裝置不支援 QR Code 偵測，請改用「手動輸入」'
     return
   }
 
-  boxTrackTimer = setInterval(async () => {
+  scanLoopTimer = setInterval(async () => {
     if (!isCameraRunning.value || currentTab.value !== 'scan') return
-    const container = document.getElementById('qr-camera-reader')
-    const video = container?.querySelector('video')
+    const video = videoRef.value
     const viewport = viewportRef.value
     if (!video || !viewport || video.readyState < 2 || !video.videoWidth) return
 
@@ -766,17 +730,13 @@ const startQrBoxTracker = () => {
 }
 
 const stopCameraScanner = async () => {
-  stopQrBoxTracker()
-  if (html5QrInstance.value) {
-    try {
-      if (isCameraRunning.value) {
-        await html5QrInstance.value.stop()
-      }
-      await html5QrInstance.value.clear()
-    } catch (err) {
-      console.warn('停止相機時略過例外：', err)
-    }
-    html5QrInstance.value = null
+  stopScanLoop()
+  if (mediaStream.value) {
+    mediaStream.value.getTracks().forEach((track) => track.stop())
+    mediaStream.value = null
+  }
+  if (videoRef.value) {
+    videoRef.value.srcObject = null
   }
   isCameraRunning.value = false
   flashOn.value = false
@@ -792,37 +752,34 @@ const startCameraScanner = async () => {
   cameraStatusMsg.value = ''
   await nextTick()
 
-  const containerEl = document.getElementById('qr-camera-reader')
-  if (!containerEl) return
+  const video = videoRef.value
+  if (!video || !navigator.mediaDevices?.getUserMedia) {
+    scanError.value = true
+    cameraStatusMsg.value = '此瀏覽器不支援相機存取，請使用 HTTPS 或點「手動輸入」'
+    return
+  }
 
   try {
     await stopCameraScanner()
-    const scanner = new Html5Qrcode('qr-camera-reader', {
-      useBarCodeDetectorIfSupported: true
-    })
-    html5QrInstance.value = scanner
-
-    await scanner.start(
-      { facingMode: 'environment' },
-      {
-        fps: 15,
-        disableFlip: false
-      },
-      async (decodedText) => {
-        await handleDecodedQrText(decodedText)
-      },
-      () => {
-        // 連續掃描中未讀到條碼時的回呼
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
       }
-    )
+    })
+    mediaStream.value = stream
+    video.srcObject = stream
+    video.setAttribute('playsinline', 'true')
+    video.setAttribute('webkit-playsinline', 'true')
+    video.muted = true
+    await video.play()
 
     isCameraRunning.value = true
-    forceFullBleedVideo()
-    setTimeout(forceFullBleedVideo, 300)
-    setTimeout(forceFullBleedVideo, 900)
-    startQrBoxTracker()
+    startNativeQrLoop()
   } catch (err) {
-    console.error('啟動相機失敗：', err)
+    console.error('啟動原生相機失敗：', err)
     isCameraRunning.value = false
     scanError.value = true
     cameraStatusMsg.value = err?.message || '無法存取相機，請確認使用 HTTPS 並允許相機權限'
@@ -831,14 +788,15 @@ const startCameraScanner = async () => {
 
 const toggleTorch = async () => {
   const nextTorch = !flashOn.value
-  if (html5QrInstance.value && isCameraRunning.value) {
+  const track = mediaStream.value?.getVideoTracks?.()?.[0]
+  if (track && track.applyConstraints) {
     try {
-      await html5QrInstance.value.applyVideoConstraints({
+      await track.applyConstraints({
         advanced: [{ torch: nextTorch }]
       })
       flashOn.value = nextTorch
     } catch (err) {
-      console.warn('此裝置或瀏覽器不支援直接切換閃光燈：', err)
+      console.warn('此裝置或瀏覽器不支援切換手電筒：', err)
       flashOn.value = nextTorch
     }
   } else {
@@ -1929,7 +1887,7 @@ const handleLogout = async () => {
   color: #dc2626 !important;
 }
 
-/* ================= 掃描器介面樣式 ================= */
+/* ================= 原生掃描器介面樣式 ================= */
 .scanner-wrapper {
   background-color: #000000;
   border-radius: 24px;
@@ -1977,36 +1935,14 @@ const handleLogout = async () => {
   box-sizing: border-box;
 }
 
-.qr-video-container {
+.native-camera-video {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  object-fit: cover;
   z-index: 1;
-}
-
-.qr-video-container :deep(div) {
-  width: 100% !important;
-  height: 100% !important;
-  max-width: none !important;
-  border: none !important;
-  padding: 0 !important;
-  margin: 0 !important;
-}
-
-.qr-video-container :deep(video) {
-  position: absolute !important;
-  top: 0 !important;
-  left: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
-}
-
-.qr-video-container :deep(#qr-shaded-region),
-.qr-video-container :deep(canvas) {
-  display: none !important;
+  background: #000;
 }
 
 .qr-bounding-layer {
@@ -2153,7 +2089,7 @@ const handleLogout = async () => {
 
 .camera-hint-box {
   text-align: center;
-  max-width: 195px;
+  max-width: 220px;
   background-color: rgba(0, 0, 0, 0.65);
   padding: 0.5rem 0.75rem;
   border-radius: 10px;
