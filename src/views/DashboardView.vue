@@ -637,6 +637,33 @@ const stopQrBoxTracker = () => {
   qrPulseDetected.value = false
 }
 
+// 強制覆寫 html5-qrcode 動態寫入的行內樣式與高寬，讓 <video> 填滿 .camera-viewport
+const forceFullBleedVideo = () => {
+  const reader = document.getElementById('qr-camera-reader')
+  if (!reader) return
+
+  reader.style.cssText =
+    'position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; overflow: hidden !important; background: #000 !important;'
+
+  reader.querySelectorAll('div, table, tbody, tr, td').forEach((el) => {
+    if (el.id === 'qr-shaded-region') {
+      el.style.cssText = 'display: none !important;'
+    } else {
+      el.style.cssText =
+        'position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; padding: 0 !important; margin: 0 !important; border: none !important;'
+    }
+  })
+
+  const video = reader.querySelector('video')
+  if (video) {
+    video.setAttribute('playsinline', 'true')
+    video.setAttribute('webkit-playsinline', 'true')
+    video.muted = true
+    video.style.cssText =
+      'position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; min-width: 100% !important; min-height: 100% !important; object-fit: cover !important; transform: none !important;'
+  }
+}
+
 // 原生 BarcodeDetector 即時偵測 QR Code 座標並畫出綠框
 const startQrBoxTracker = () => {
   stopQrBoxTracker()
@@ -727,22 +754,11 @@ const startCameraScanner = async () => {
     })
     html5QrInstance.value = scanner
 
-    const vpEl = viewportRef.value
-    const vpRatio =
-      vpEl && vpEl.clientHeight > 0
-        ? Number((vpEl.clientWidth / vpEl.clientHeight).toFixed(2))
-        : 0.85
-
     await scanner.start(
       { facingMode: 'environment' },
       {
         fps: 15,
-        aspectRatio: vpRatio,
-        qrbox: (viewfinderWidth, viewfinderHeight) => {
-          const w = Math.max(180, Math.floor(viewfinderWidth * 0.65))
-          const h = Math.max(180, Math.floor(viewfinderHeight * 0.65))
-          return { width: w, height: h }
-        },
+        qrbox: { width: 220, height: 220 },
         disableFlip: false
       },
       async (decodedText) => {
@@ -784,6 +800,9 @@ const startCameraScanner = async () => {
     )
 
     isCameraRunning.value = true
+    forceFullBleedVideo()
+    setTimeout(forceFullBleedVideo, 300)
+    setTimeout(forceFullBleedVideo, 800)
     startQrBoxTracker()
   } catch (err) {
     console.error('啟動相機失敗：', err)
