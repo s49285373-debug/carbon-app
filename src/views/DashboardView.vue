@@ -197,6 +197,7 @@
               webkit-playsinline
               muted
             ></video>
+            <canvas ref="decodeCanvasRef" class="hidden-decode-canvas"></canvas>
 
             <!-- 即時追蹤 QR Code 實際座標的動態綠色方框層 -->
             <div class="qr-bounding-layer">
@@ -538,6 +539,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import jsQR from 'jsqr'
 
 const router = useRouter()
 const nickname = ref('使用者')
@@ -548,6 +550,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000
 // 原生相機與掃描狀態
 const viewportRef = ref(null)
 const videoRef = ref(null)
+const decodeCanvasRef = ref(null)
 const mediaStream = ref(null)
 const flashOn = ref(false)
 const soundOn = ref(true)
@@ -669,64 +672,124 @@ const handleDecodedQrText = async (decodedText) => {
   )
 }
 
+const computeViewportBoxStyle = (x, y, w, h, srcW, srcH, viewport) => {
+  const vpRect = viewport.getBoundingClientRect()
+  const scale = Math.max(vpRect.width / srcW, vpRect.height / srcH)
+  const renderedW = srcW * scale
+  const renderedH = srcH * scale
+  const offsetX = (vpRect.width - renderedW) / 2
+  const offsetY = (vpRect.height - renderedH) / 2
+
+  return {
+    left: `${x * scale + offsetX}px`,
+    top: `${y * scale + offsetY}px`,
+    width: `${w * scale}px`,
+    height: `${h * scale}px`
+  }
+}
+
 const startNativeQrLoop = () => {
   stopScanLoop()
-  if (typeof window === 'undefined' || !('BarcodeDetector' in window)) {
-    cameraStatusMsg.value = '目前瀏覽器不支援原生 BarcodeDetector，若無法自動辨識請點「手動輸入」或「模擬成功掃描解析」'
-    return
-  }
-
+  const hasBarcodeDetector = typeof window !== 'undefined' && 'BarcodeDetector' in window
   let detector = null
-  try {
-    detector = new window.BarcodeDetector({ formats: ['qr_code'] })
-  } catch {
-    cameraStatusMsg.value = '此裝置不支援 QR Code 偵測，請改用「手動輸入」'
-    return
+  if (hasBarcodeDetector) {
+    try {
+      detector = new window.BarcodeDetector({ formats: ['qr_code'] })
+    } catch {
+      detector = null
+    }
   }
 
   scanLoopTimer = setInterval(async () => {
-    if (!isCameraRunning.value || currentTab.value !== 'scan') return
+    if (!isCameraRunning.value || currentTab.value !== 'scan' || isExtracting.value) return
     const video = videoRef.value
+    const canvas = decodeCanvasRef.value
     const viewport = viewportRef.value
-    if (!video || !viewport || video.readyState < 2 || !video.videoWidth) return
+    if (!video || !canvas || !viewport || video.readyState < 2 || !video.videoWidth) return
 
-    try {
-      const barcodes = await detector.detect(video)
-      if (!barcodes || barcodes.length === 0) {
-        detectedBoxes.value = []
-        return
-      }
+    const vw = video.videoWidth
+    const vh = video.videoHeight
 
-      const vpRect = viewport.getBoundingClientRect()
-      const vw = video.videoWidth
-      const vh = video.videoHeight
-      const scale = Math.max(vpRect.width / vw, vpRect.height / vh)
-      const renderedW = vw * scale
-      const renderedH = vh * scale
-      const offsetX = (vpRect.width - renderedW) / 2
-      const offsetY = (vpRect.height - renderedH) / 2
-
-      detectedBoxes.value = barcodes.map((b) => {
-        const bb = b.boundingBox
-        return {
-          rawValue: b.rawValue,
-          style: {
-            left: `${bb.x * scale + offsetX}px`,
-            top: `${bb.y * scale + offsetY}px`,
-            width: `${bb.width * scale}px`,
-            height: `${bb.height * scale}px`
+    // 1. 優先嘗試原生 BarcodeDetector（速度快且可抓多碼）
+    if (detector) {
+      try {
+        const barcodes = await detector.detect(video)
+        if (barcodes && barcodes.length > 0) {
+          detectedBoxes.value = barcodes.map((b) => {
+            const bb = b.boundingBox
+            return {
+              rawValue: b.rawValue,
+              style: computeViewportBoxStyle(bb.x, bb.y, bb.width, bb.height, vw, vh, viewport)
+            }
+          })
+          const firstValid = barcodes.find(b => b.rawValue && b.rawValue.trim().length > 0)
+          if (firstValid) {
+            await handleDecodedQrText(firstValid.rawValue)
+            return
           }
         }
+      } catch {
+        // 改走 jsQR 備援
+      }
+    }
+
+    // 2. 跨瀏覽器（iOS Safari / 內建瀏覽器）jsQR 解碼
+    try {
+      const targetW = Math.min(vw, 640)
+      const targetH = Math.round((vh / vw) * targetW)
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW
+        canvas.height = targetH
+      }
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      if (!ctx) return
+
+      ctx.drawImage(video, 0, 0, targetW, targetH)
+      const imageData = ctx.getImageData(0, 0, targetW, targetH)
+      const code = jsQR(imageData.data, targetW, targetH, {
+        inversionAttempts: 'attemptBoth'
       })
 
-      const firstValid = barcodes.find(b => b.rawValue && b.rawValue.trim().length > 0)
-      if (firstValid && !isExtracting.value) {
-        await handleDecodedQrText(firstValid.rawValue)
+      if (code && code.data) {
+        const xs = [
+          code.location.topLeftCorner.x,
+          code.location.topRightCorner.x,
+          code.location.bottomLeftCorner.x,
+          code.location.bottomRightCorner.x
+        ]
+        const ys = [
+          code.location.topLeftCorner.y,
+          code.location.topRightCorner.y,
+          code.location.bottomLeftCorner.y,
+          code.location.bottomRightCorner.y
+        ]
+        const minX = Math.min(...xs)
+        const maxX = Math.max(...xs)
+        const minY = Math.min(...ys)
+        const maxY = Math.max(...ys)
+
+        detectedBoxes.value = [
+          {
+            rawValue: code.data,
+            style: computeViewportBoxStyle(
+              minX,
+              minY,
+              Math.max(maxX - minX, 24),
+              Math.max(maxY - minY, 24),
+              targetW,
+              targetH,
+              viewport
+            )
+          }
+        ]
+        await handleDecodedQrText(code.data)
+      } else {
+        detectedBoxes.value = []
       }
     } catch {
-      // 忽略單幀偵測例外
+      // 忽略單幀例外
     }
-  }, 150)
+  }, 200)
 }
 
 const stopCameraScanner = async () => {
@@ -1943,6 +2006,10 @@ const handleLogout = async () => {
   object-fit: cover;
   z-index: 1;
   background: #000;
+}
+
+.hidden-decode-canvas {
+  display: none;
 }
 
 .qr-bounding-layer {
