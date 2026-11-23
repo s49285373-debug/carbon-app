@@ -330,7 +330,7 @@
             </div>
 
             <p class="scanner-footer-note">
-              將整張電子發票對準中央對焦框，系統會自動鎖定 QR Code；有逐項明細時逐項計算，無明細時套用預設類別係數推估。
+              先掃描左側主 QR Code 建檔；若右側延伸 QR Code 有額外品項，再掃描右側可自動補齊明細。
             </p>
 
             <div class="demo-actions">
@@ -547,7 +547,7 @@ const currentTab = ref('home')
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
-// 常見賣方統編店名對照（可依需要擴充）
+// 常見賣方統編店名對照
 const SELLER_NAME_MAP = {
   '60826810': '木棉花國際(股)公司台中一中營業所'
 }
@@ -640,10 +640,11 @@ const stopScanLoop = () => {
 }
 
 /**
- * 解析台灣電子發票 QR Code 字串（左側表頭 77 碼起算 + 後續冒號分隔明細）
+ * 解析台灣電子發票 QR Code 字串（支援左側表頭 77 碼起算 + 右側 ** 延伸明細）
  */
 const parseTaiwanInvoiceQr = (rawPayload) => {
   const result = {
+    isExtensionOnly: false,
     invoiceNumber: '',
     rocDate: '',
     isoDate: '',
@@ -660,20 +661,18 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
   const text = rawPayload.trim()
   if (!text) return result
 
-  // 支援右側 QR 或帶 ** 前綴的明細段
+  // 右側延伸 QR Code（通常以 ** 開頭，接續品名:數量:單價/金額）
   if (text.startsWith('**')) {
+    result.isExtensionOnly = true
     const body = text.slice(2)
     const parts = body.split(':')
     for (let i = 0; i + 2 < parts.length; i += 3) {
       const name = (parts[i] || '').trim()
       const qty = Number(parts[i + 1]) || 1
       const amt = Number(parts[i + 2]) || 0
-      if (name) {
+      if (name && !/^\d+$/.test(name)) {
         result.items.push({ item_name: name, quantity: qty, amount: amt })
       }
-    }
-    if (result.items.length > 0) {
-      result.totalAmount = result.items.reduce((s, it) => s + Number(it.amount || 0), 0)
     }
     return result
   }
@@ -697,7 +696,7 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       result.randomCode = rand
     }
 
-    // 銷售額（21..29）與總計金額（29..37）：多為 8 碼十六進位，部分廠商為十進位
+    // 銷售額（21..29）與總計金額（29..37）
     if (text.length >= 37) {
       const salesHex = text.slice(21, 29)
       const totalHex = text.slice(29, 37)
@@ -742,7 +741,7 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
           const name = (tokens[i] || '').trim()
           const qty = Number(tokens[i + 1]) || 1
           const amt = Number(tokens[i + 2]) || 0
-          if (name) {
+          if (name && !/^\d+$/.test(name)) {
             result.items.push({ item_name: name, quantity: qty, amount: amt })
           }
         }
@@ -751,6 +750,45 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
   }
 
   return result
+}
+
+/**
+ * 若掃到右側延伸 QR（** 開頭），將新明細併入最新或同期間發票，避免開出空白 TWD 0 紀錄
+ */
+const mergeExtensionItemsToLatestInvoice = (extItems) => {
+  const target = lastExtractedInvoice.value
+    ? invoiceList.value.find(inv => inv.invoice_number === lastExtractedInvoice.value.invoice_number)
+    : invoiceList.value[0]
+
+  if (!target) {
+    successToastMsg.value = '請先掃描左側主 QR Code'
+    setTimeout(() => {
+      successToastMsg.value = ''
+    }, 2000)
+    return
+  }
+
+  const existingNames = new Set((target.items || []).map(it => `${it.item_name}_${it.amount}`))
+  const newUniqueItems = (extItems || []).filter(it => !existingNames.has(`${it.item_name}_${it.amount}`))
+
+  if (newUniqueItems.length > 0) {
+    target.items = [...(target.items || []), ...newUniqueItems]
+    target.summary_title =
+      target.items.length > 1
+        ? `${target.items[0].item_name} 等 ${target.items.length} 項`
+        : target.items[0].item_name
+    target.calc_label = '逐項商品明細推估'
+    if (lastExtractedInvoice.value && lastExtractedInvoice.value.invoice_number === target.invoice_number) {
+      lastExtractedInvoice.value = { ...target }
+    }
+    successToastMsg.value = `已補齊 ${newUniqueItems.length} 筆明細`
+  } else {
+    successToastMsg.value = '右側明細已存在或無新增品項'
+  }
+
+  setTimeout(() => {
+    successToastMsg.value = ''
+  }, 2000)
 }
 
 const handleDecodedQrText = async (decodedText) => {
@@ -770,6 +808,13 @@ const handleDecodedQrText = async (decodedText) => {
   if (isExtracting.value) return
 
   const parsedQr = parseTaiwanInvoiceQr(cleanText)
+
+  // 右側 QR 延伸明細：直接補齊到現有發票，不另建 TWD 0 發票
+  if (parsedQr.isExtensionOnly || cleanText.startsWith('**')) {
+    mergeExtensionItemsToLatestInvoice(parsedQr.items)
+    return
+  }
+
   if (parsedQr.invoiceNumber && /^[A-Z]{2}\d{8}$/.test(parsedQr.invoiceNumber)) {
     const exists = invoiceList.value.some(inv => inv.invoice_number === parsedQr.invoiceNumber)
     if (exists) {
@@ -838,7 +883,6 @@ const startNativeQrLoop = () => {
     const vw = video.videoWidth
     const vh = video.videoHeight
 
-    // 1. 優先嘗試原生 BarcodeDetector（速度快且可抓多碼）
     if (detector) {
       try {
         const barcodes = await detector.detect(video)
@@ -861,7 +905,6 @@ const startNativeQrLoop = () => {
       }
     }
 
-    // 2. 跨瀏覽器（iOS Safari / 內建瀏覽器）jsQR 解碼
     try {
       const targetW = Math.min(vw, 640)
       const targetH = Math.round((vh / vw) * targetW)
@@ -1121,7 +1164,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描說明】\n1. 將整張紙本電子發票置於中央對焦框內，辨識到 QR Code 時會出現綠框。\n2. 若發票已登錄過，中央會提示「發票已存在」。\n3. 有逐項明細時逐項計算；無明細時套用預設消費類別係數推估。')
+  alert('【掃描說明】\n1. 先將左側主 QR Code 置於中央對焦框完成建檔。\n2. 若右側延伸 QR Code 有額外品項，再掃描右側可自動補齊明細。\n3. 若發票已登錄過，中央會提示「發票已存在」。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr') => {
@@ -1136,15 +1179,21 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
 
   const categoryName = backendData.category_name || '一般消費'
   const sellerBan = backendData.seller_ban || inputMeta.sellerBan || ''
+  const rawBackendMerchant = (backendData.merchant_name || '').trim()
+  const isGenericBackendMerchant = !rawBackendMerchant || /^賣方\s*\d+$/.test(rawBackendMerchant)
+
   const merchantName =
-    backendData.merchant_name ||
+    (!isGenericBackendMerchant && rawBackendMerchant) ||
     inputMeta.merchantName ||
     (sellerBan && SELLER_NAME_MAP[sellerBan]) ||
     (sellerBan ? `賣方 ${sellerBan}` : `預設${categoryName}推估（${cleanNum.slice(0, 2)}字軌）`)
 
   const inputDateClean = (inputMeta.invoiceDate || '').trim()
+  const backendDt = (backendData.purchase_datetime || '').trim()
+  const isBackendPlaceholderTime = backendDt.endsWith('19:34:37')
+
   const rawDatetime =
-    backendData.purchase_datetime ||
+    (!isBackendPlaceholderTime && backendDt) ||
     (inputDateClean
       ? `${inputDateClean.replaceAll('/', '-')} 00:00:00`
       : backendData.purchase_date
@@ -1157,33 +1206,37 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
     ? backendData.purchase_date.replaceAll('-', '/')
     : rawDatetime.slice(0, 10).replaceAll('-', '/')
 
-  const backendItems = Array.isArray(backendData.items) ? backendData.items : []
-  const inputItems = Array.isArray(inputMeta.items) ? inputMeta.items : []
-  const items = backendItems.length > 0 ? backendItems : inputItems
+  const rawBackendItems = Array.isArray(backendData.items) ? backendData.items : []
+  const validBackendItems = rawBackendItems.filter((it) => {
+    const name = String(it.item_name || '').trim()
+    const amt = Number(it.amount || 0)
+    return name.length > 0 && !/^\d+$/.test(name) && amt > 0
+  })
 
+  const inputItems = Array.isArray(inputMeta.items) ? inputMeta.items : []
+  const items = validBackendItems.length > 0 ? validBackendItems : inputItems
   const itemsSum = items.reduce((s, it) => s + Number(it.amount || 0), 0)
 
   const totalAmount =
-    Number(backendData.total_amount) > 0
-      ? Number(backendData.total_amount)
-      : Number(inputMeta.totalAmount) > 0
+    Number(inputMeta.totalAmount) > 0
       ? Number(inputMeta.totalAmount)
+      : Number(backendData.total_amount) > 0
+      ? Number(backendData.total_amount)
       : itemsSum > 0
       ? itemsSum
       : 0
 
   const calcLabel =
-    backendData.calc_label ||
-    (items.length > 0
+    items.length > 0
       ? '逐項商品明細推估'
-      : `無逐項明細，套用預設「${categoryName}」係數推估`)
+      : `無逐項明細，套用預設「${categoryName}」係數推估`
 
   const summaryTitle =
     items.length > 1
       ? `${items[0].item_name} 等 ${items.length} 項`
       : items.length === 1
       ? items[0].item_name
-      : `預設${categoryName}推估（無逐項明細）`
+      : `${merchantName}（無逐項明細）`
 
   const estimatedCarbon =
     backendData.carbon_kg !== undefined && Number(backendData.carbon_kg) > 0
@@ -1544,7 +1597,6 @@ const handleLogout = async () => {
   border-color: #059669;
 }
 
-/* ================= 發票存摺分頁樣式 ================= */
 .passbook-wrapper {
   background-color: #ffffff;
   color: #1f2937;
@@ -2087,7 +2139,6 @@ const handleLogout = async () => {
   color: #dc2626 !important;
 }
 
-/* ================= 原生掃描器介面樣式 ================= */
 .scanner-wrapper {
   background-color: #000000;
   border-radius: 24px;
