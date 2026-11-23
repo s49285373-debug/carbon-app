@@ -637,7 +637,46 @@ const stopQrBoxTracker = () => {
   qrPulseDetected.value = false
 }
 
-// 強制覆寫 html5-qrcode 動態寫入的行內樣式與高寬，讓 <video> 填滿 .camera-viewport
+// 處理辨識到的 QR 文字（共用 html5-qrcode 與原生 BarcodeDetector）
+const handleDecodedQrText = async (decodedText) => {
+  if (!decodedText || typeof decodedText !== 'string') return
+  const cleanText = decodedText.trim()
+  if (!cleanText) return
+
+  triggerGreenPulse()
+
+  const now = Date.now()
+  if (cleanText === lastRawScannedText && now - lastRawScannedAt < 2500) {
+    return
+  }
+  lastRawScannedText = cleanText
+  lastRawScannedAt = now
+
+  if (isExtracting.value) return
+
+  const maybeInvNum = cleanText.slice(0, 10).toUpperCase()
+  if (/^[A-Z]{2}\d{8}$/.test(maybeInvNum)) {
+    const exists = invoiceList.value.some(inv => inv.invoice_number === maybeInvNum)
+    if (exists) {
+      duplicateAlertMsg.value = '發票已存在'
+      setTimeout(() => {
+        duplicateAlertMsg.value = ''
+      }, 2200)
+      return
+    }
+  }
+
+  if (!continuousScan.value) {
+    await stopCameraScanner()
+  }
+  await processInvoiceLookup(
+    { invoiceType: invoiceType.value },
+    cleanText,
+    'qr'
+  )
+}
+
+// 強制覆寫 html5-qrcode 動態寫入的行內樣式，並隱藏 Scanner paused 字樣與遮罩
 const forceFullBleedVideo = () => {
   const reader = document.getElementById('qr-camera-reader')
   if (!reader) return
@@ -646,7 +685,8 @@ const forceFullBleedVideo = () => {
     'position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; overflow: hidden !important; background: #000 !important;'
 
   reader.querySelectorAll('div, table, tbody, tr, td').forEach((el) => {
-    if (el.id === 'qr-shaded-region') {
+    const txt = (el.textContent || '').trim()
+    if (el.id === 'qr-shaded-region' || txt === 'Scanner paused') {
       el.style.cssText = 'display: none !important;'
     } else {
       el.style.cssText =
@@ -659,12 +699,15 @@ const forceFullBleedVideo = () => {
     video.setAttribute('playsinline', 'true')
     video.setAttribute('webkit-playsinline', 'true')
     video.muted = true
+    if (video.paused) {
+      video.play().catch(() => {})
+    }
     video.style.cssText =
       'position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; min-width: 100% !important; min-height: 100% !important; object-fit: cover !important; transform: none !important;'
   }
 }
 
-// 原生 BarcodeDetector 即時偵測 QR Code 座標並畫出綠框
+// 原生 BarcodeDetector 即時偵測 QR Code 座標、畫出綠框並直接觸發解碼
 const startQrBoxTracker = () => {
   stopQrBoxTracker()
   if (typeof window === 'undefined' || !('BarcodeDetector' in window)) return
@@ -711,6 +754,11 @@ const startQrBoxTracker = () => {
           }
         }
       })
+
+      const firstValid = barcodes.find(b => b.rawValue && b.rawValue.trim().length > 0)
+      if (firstValid && !isExtracting.value) {
+        await handleDecodedQrText(firstValid.rawValue)
+      }
     } catch {
       // 忽略單幀偵測例外
     }
@@ -758,41 +806,10 @@ const startCameraScanner = async () => {
       { facingMode: 'environment' },
       {
         fps: 15,
-        qrbox: { width: 220, height: 220 },
         disableFlip: false
       },
       async (decodedText) => {
-        triggerGreenPulse()
-
-        const now = Date.now()
-        if (decodedText === lastRawScannedText && now - lastRawScannedAt < 2500) {
-          return
-        }
-        lastRawScannedText = decodedText
-        lastRawScannedAt = now
-
-        if (isExtracting.value) return
-
-        const maybeInvNum = decodedText.trim().slice(0, 10).toUpperCase()
-        if (/^[A-Z]{2}\d{8}$/.test(maybeInvNum)) {
-          const exists = invoiceList.value.some(inv => inv.invoice_number === maybeInvNum)
-          if (exists) {
-            duplicateAlertMsg.value = '發票已存在'
-            setTimeout(() => {
-              duplicateAlertMsg.value = ''
-            }, 2200)
-            return
-          }
-        }
-
-        if (!continuousScan.value) {
-          await stopCameraScanner()
-        }
-        await processInvoiceLookup(
-          { invoiceType: invoiceType.value },
-          decodedText,
-          'qr'
-        )
+        await handleDecodedQrText(decodedText)
       },
       () => {
         // 連續掃描中未讀到條碼時的回呼
@@ -802,7 +819,7 @@ const startCameraScanner = async () => {
     isCameraRunning.value = true
     forceFullBleedVideo()
     setTimeout(forceFullBleedVideo, 300)
-    setTimeout(forceFullBleedVideo, 800)
+    setTimeout(forceFullBleedVideo, 900)
     startQrBoxTracker()
   } catch (err) {
     console.error('啟動相機失敗：', err)
