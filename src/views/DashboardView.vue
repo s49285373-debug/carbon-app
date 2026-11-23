@@ -132,7 +132,7 @@
                 @click="openInvoiceDetail(inv)"
               >
                 <div class="record-top-meta">
-                  <span>{{ inv.purchase_datetime || inv.purchase_date }}</span>
+                  <span>{{ inv.purchase_date }}</span>
                   <span class="meta-sep">|</span>
                   <span>{{ inv.invoice_number }}</span>
                   <span class="meta-sep">|</span>
@@ -291,7 +291,7 @@
             <div v-if="lastExtractedInvoice" class="latest-extracted-box">
               <div class="latest-extracted-header">
                 <span>
-                  ✅ <strong>{{ lastExtractedInvoice.invoice_number }}</strong>｜{{ lastExtractedInvoice.merchant_name }}（{{ lastExtractedInvoice.purchase_datetime || lastExtractedInvoice.purchase_date }}）
+                  ✅ <strong>{{ lastExtractedInvoice.invoice_number }}</strong>｜{{ lastExtractedInvoice.merchant_name }}（{{ lastExtractedInvoice.purchase_date }}）
                 </span>
                 <div class="latest-extracted-actions">
                   <button class="view-passbook-link" @click="currentTab = 'invoices'">前往發票存摺 &gt;</button>
@@ -330,7 +330,7 @@
             </div>
 
             <p class="scanner-footer-note">
-              左右 QR Code 可同時入鏡合併建檔；若先掃左側主 QR，再掃右側「**」延伸 QR 也會自動補齊明細。
+              左右 QR Code 可同時入鏡合併建檔；先左後右或先右後左（間隔約 0.5～1.5 秒內）也會自動配對補齊明細。
             </p>
 
             <div class="demo-actions">
@@ -359,21 +359,13 @@
               </div>
 
               <div class="input-group">
-                <label>發票日期與時間 <span class="req-star">*</span></label>
-                <div class="split-datetime-row">
-                  <input
-                    type="text"
-                    v-model="manualForm.invoiceDate"
-                    placeholder="日期（例如：2026-09-30）"
-                    class="form-input"
-                  />
-                  <input
-                    type="text"
-                    v-model="manualForm.invoiceTime"
-                    placeholder="時間（例如：12:39:51）"
-                    class="form-input"
-                  />
-                </div>
+                <label>發票日期 <span class="req-star">*</span></label>
+                <input
+                  type="text"
+                  v-model="manualForm.invoiceDate"
+                  placeholder="例如：2026-09-30"
+                  class="form-input"
+                />
               </div>
 
               <div class="input-group">
@@ -488,7 +480,7 @@
 
     </main>
 
-    <!-- 發票明細檢視與時間補填彈窗 -->
+    <!-- 發票明細檢視彈窗 -->
     <div v-if="selectedInvoiceDetail" class="manual-modal-overlay" @click.self="selectedInvoiceDetail = null">
       <div class="manual-modal-card">
         <h4>🧾 發票消費與碳排明細</h4>
@@ -496,18 +488,7 @@
           <p><strong>發票號碼：</strong>{{ selectedInvoiceDetail.invoice_number }}</p>
           <p><strong>推估方式：</strong>{{ selectedInvoiceDetail.calc_label }}</p>
           <p><strong>店家／類別：</strong>{{ selectedInvoiceDetail.merchant_name }}</p>
-          <p><strong>購買時間：</strong>{{ selectedInvoiceDetail.purchase_datetime || selectedInvoiceDetail.purchase_date }}</p>
-          <div class="inline-time-edit-row">
-            <input
-              type="text"
-              v-model="editingDetailDatetime"
-              placeholder="YYYY-MM-DD HH:mm:ss"
-              class="inline-time-input"
-            />
-            <button type="button" class="inline-time-save-btn" @click="saveDetailDatetime">
-              更新時間
-            </button>
-          </div>
+          <p><strong>購買日期：</strong>{{ selectedInvoiceDetail.purchase_date }}</p>
           <p><strong>隨機碼：</strong>{{ selectedInvoiceDetail.random_code || '—' }}</p>
           <p><strong>登錄方式：</strong>{{ selectedInvoiceDetail.source_type === 'manual' ? '手動輸入' : '電子發票' }}</p>
           <p><strong>推估碳排：</strong>{{ selectedInvoiceDetail.carbon_kg }} kg CO₂e（隱形碳成本 {{ selectedInvoiceDetail.hidden_carbon_cost }} 元）</p>
@@ -591,24 +572,25 @@ let qrPulseTimer = null
 let lastRawScannedText = ''
 let lastRawScannedAt = 0
 
-// 左右 QR 合併暫存狀態（支援同一幀同時抓到左右兩顆，或先左後右補齊明細）
+// 左右 QR 合併暫存狀態（支援同一幀同時抓到、先左後右，以及先右後左 0.5～1.5 秒內配對）
 let pendingLeftQr = null
 let pendingRightItems = []
+let pendingRightAt = 0
 let mergeFlushTimer = null
+const RIGHT_QR_HOLD_MS = 1500
 
 // 手動輸入表單狀態
 const showManualModal = ref(false)
 const manualForm = reactive({
   invoiceType: 'electronic',
   invoiceDate: '',
-  invoiceTime: '00:00:00',
   trackCode: '',
   serialNumber: '',
   totalAmount: null,
   randomCode: ''
 })
 
-// 發票存摺與明細時間編輯狀態
+// 發票存摺狀態
 const periods = ['115年07–08月', '115年09–10月', '115年11–12月']
 const currentPeriodIndex = ref(1)
 const showSearchBar = ref(false)
@@ -616,34 +598,10 @@ const searchKeyword = ref('')
 const sourceFilter = ref('all')
 const sortDesc = ref(true)
 const selectedInvoiceDetail = ref(null)
-const editingDetailDatetime = ref('')
 const invoiceList = ref([])
 
 const openInvoiceDetail = (inv) => {
   selectedInvoiceDetail.value = inv
-  editingDetailDatetime.value = inv.purchase_datetime || `${inv.purchase_date.replaceAll('/', '-')} 00:00:00`
-}
-
-const saveDetailDatetime = () => {
-  if (!selectedInvoiceDetail.value) return
-  const trimmed = editingDetailDatetime.value.trim()
-  if (!trimmed) return
-
-  const normalized = trimmed.replaceAll('/', '-')
-  const datePart = normalized.slice(0, 10).replaceAll('-', '/')
-
-  selectedInvoiceDetail.value.purchase_datetime = normalized
-  selectedInvoiceDetail.value.purchase_date = datePart
-
-  const target = invoiceList.value.find(item => item.id === selectedInvoiceDetail.value.id)
-  if (target) {
-    target.purchase_datetime = normalized
-    target.purchase_date = datePart
-  }
-  if (lastExtractedInvoice.value && lastExtractedInvoice.value.id === selectedInvoiceDetail.value.id) {
-    lastExtractedInvoice.value.purchase_datetime = normalized
-    lastExtractedInvoice.value.purchase_date = datePart
-  }
 }
 
 const isManualFormValid = computed(() => {
@@ -659,7 +617,6 @@ const isManualFormValid = computed(() => {
 const openManualModal = () => {
   manualForm.invoiceType = invoiceType.value
   manualForm.invoiceDate = ''
-  manualForm.invoiceTime = '00:00:00'
   manualForm.trackCode = ''
   manualForm.serialNumber = ''
   manualForm.totalAmount = null
@@ -682,6 +639,7 @@ const resetPendingQrMerge = () => {
   }
   pendingLeftQr = null
   pendingRightItems = []
+  pendingRightAt = 0
 }
 
 const stopScanLoop = () => {
@@ -824,7 +782,7 @@ const mergeUniqueItems = (baseItems = [], extraItems = []) => {
 }
 
 /**
- * 若單獨掃到右側延伸 QR（** 開頭），將新明細併入最新發票
+ * 若單獨掃到右側延伸 QR（** 開頭）且逾時未配對到新的左側主 QR，將新明細併入既有最新發票
  */
 const mergeExtensionItemsToLatestInvoice = (extItems) => {
   const target = lastExtractedInvoice.value
@@ -870,9 +828,13 @@ const flushPendingInvoice = async () => {
   if (!pendingLeftQr || isExtracting.value) return
 
   const leftSnapshot = pendingLeftQr
-  const rightSnapshot = [...pendingRightItems]
+  const hasFreshRight =
+    pendingRightItems.length > 0 && Date.now() - pendingRightAt <= RIGHT_QR_HOLD_MS
+  const rightSnapshot = hasFreshRight ? [...pendingRightItems] : []
+
   pendingLeftQr = null
   pendingRightItems = []
+  pendingRightAt = 0
 
   const mergedItems = mergeUniqueItems(leftSnapshot.parsed.items || [], rightSnapshot)
 
@@ -900,7 +862,7 @@ const handleDecodedQrText = async (decodedText) => {
   triggerGreenPulse()
 
   const now = Date.now()
-  if (cleanText === lastRawScannedText && now - lastRawScannedAt < 1600) {
+  if (cleanText === lastRawScannedText && now - lastRawScannedAt < 1200) {
     return
   }
   lastRawScannedText = cleanText
@@ -908,14 +870,32 @@ const handleDecodedQrText = async (decodedText) => {
 
   const parsedQr = parseTaiwanInvoiceQr(cleanText)
 
-  // 1. 右側延伸 QR（** 開頭）：若左側主 QR 正在等待合併，直接一起送出；否則併入最新發票
+  // 1. 右側延伸 QR（** 開頭）：
+  // - 若左邊正在等合併，直接一起送出
+  // - 若左邊還沒掃到，先暫存 RIGHT_QR_HOLD_MS（1.5 秒）等左邊主 QR；逾時未等到再併入最新既有發票
   if (parsedQr.isExtensionOnly || cleanText.startsWith('**')) {
     if (pendingLeftQr) {
-      pendingRightItems.push(...parsedQr.items)
+      pendingRightItems = mergeUniqueItems(pendingRightItems, parsedQr.items)
+      pendingRightAt = now
       await flushPendingInvoice()
       return
     }
-    mergeExtensionItemsToLatestInvoice(parsedQr.items)
+
+    pendingRightItems = mergeUniqueItems(pendingRightItems, parsedQr.items)
+    pendingRightAt = now
+
+    setTimeout(() => {
+      if (
+        pendingRightItems.length > 0 &&
+        !pendingLeftQr &&
+        Date.now() - pendingRightAt >= RIGHT_QR_HOLD_MS - 50
+      ) {
+        const fallbackItems = [...pendingRightItems]
+        pendingRightItems = []
+        pendingRightAt = 0
+        mergeExtensionItemsToLatestInvoice(fallbackItems)
+      }
+    }, RIGHT_QR_HOLD_MS)
     return
   }
 
@@ -940,7 +920,7 @@ const handleDecodedQrText = async (decodedText) => {
   if (mergeFlushTimer) clearTimeout(mergeFlushTimer)
   mergeFlushTimer = setTimeout(() => {
     flushPendingInvoice()
-  }, 350)
+  }, 200)
 }
 
 const computeViewportBoxStyle = (x, y, w, h, srcW, srcH, viewport) => {
@@ -957,6 +937,62 @@ const computeViewportBoxStyle = (x, y, w, h, srcW, srcH, viewport) => {
     width: `${w * scale}px`,
     height: `${h * scale}px`
   }
+}
+
+const decodeCanvasFrame = (srcVideo, tempCanvas, cropRect) => {
+  const vw = srcVideo.videoWidth
+  const vh = srcVideo.videoHeight
+  const sx = Math.max(0, Math.floor((cropRect?.x ?? 0) * vw))
+  const sy = Math.max(0, Math.floor((cropRect?.y ?? 0) * vh))
+  const sw = Math.max(1, Math.floor((cropRect?.w ?? 1) * vw))
+  const sh = Math.max(1, Math.floor((cropRect?.h ?? 1) * vh))
+
+  const targetW = Math.min(sw, 640)
+  const targetH = Math.max(1, Math.round((sh / sw) * targetW))
+  if (tempCanvas.width !== targetW || tempCanvas.height !== targetH) {
+    tempCanvas.width = targetW
+    tempCanvas.height = targetH
+  }
+
+  const ctx = tempCanvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return []
+
+  ctx.drawImage(srcVideo, sx, sy, sw, sh, 0, 0, targetW, targetH)
+  const imageData = ctx.getImageData(0, 0, targetW, targetH)
+  const code = jsQR(imageData.data, targetW, targetH, {
+    inversionAttempts: 'attemptBoth'
+  })
+
+  if (!code || !code.data) return []
+
+  const xs = [
+    code.location.topLeftCorner.x,
+    code.location.topRightCorner.x,
+    code.location.bottomLeftCorner.x,
+    code.location.bottomRightCorner.x
+  ]
+  const ys = [
+    code.location.topLeftCorner.y,
+    code.location.topRightCorner.y,
+    code.location.bottomLeftCorner.y,
+    code.location.bottomRightCorner.y
+  ]
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+
+  return [
+    {
+      rawValue: code.data,
+      normBox: {
+        x: (sx + (minX / targetW) * sw) / vw,
+        y: (sy + (minY / targetH) * sh) / vh,
+        w: (Math.max(maxX - minX, 20) / targetW) * sw / vw,
+        h: (Math.max(maxY - minY, 20) / targetH) * sh / vh
+      }
+    }
+  ]
 }
 
 const startNativeQrLoop = () => {
@@ -981,79 +1017,66 @@ const startNativeQrLoop = () => {
     const vw = video.videoWidth
     const vh = video.videoHeight
 
+    const hits = []
+    const seenValues = new Set()
+    const pushHits = (arr) => {
+      for (const item of arr || []) {
+        const val = (item.rawValue || '').trim()
+        if (val && !seenValues.has(val)) {
+          seenValues.add(val)
+          hits.push({ ...item, rawValue: val })
+        }
+      }
+    }
+
+    // 1. 先試原生 BarcodeDetector（同一幀可同時回傳多顆 QR）
     if (detector) {
       try {
         const barcodes = await detector.detect(video)
         if (barcodes && barcodes.length > 0) {
-          detectedBoxes.value = barcodes.map((b) => {
-            const bb = b.boundingBox
-            return {
+          pushHits(
+            barcodes.map((b) => ({
               rawValue: b.rawValue,
-              style: computeViewportBoxStyle(bb.x, bb.y, bb.width, bb.height, vw, vh, viewport)
-            }
-          })
-          // 同一幀抓到多顆 QR（例如左右 QR 同時入鏡）時逐一餵入以合併
-          for (const b of barcodes) {
-            if (b.rawValue && b.rawValue.trim().length > 0) {
-              await handleDecodedQrText(b.rawValue)
-            }
-          }
-          return
+              normBox: {
+                x: b.boundingBox.x / vw,
+                y: b.boundingBox.y / vh,
+                w: b.boundingBox.width / vw,
+                h: b.boundingBox.height / vh
+              }
+            }))
+          )
         }
       } catch {
         // 改走 jsQR 備援
       }
     }
 
+    // 2. 依序掃全圖、放大重疊的左半區與右半區，盡量在同一輪把左右兩顆 QR 都抓齊
     try {
-      const targetW = Math.min(vw, 640)
-      const targetH = Math.round((vh / vw) * targetW)
-      if (canvas.width !== targetW || canvas.height !== targetH) {
-        canvas.width = targetW
-        canvas.height = targetH
+      if (hits.length === 0) {
+        pushHits(decodeCanvasFrame(video, canvas, { x: 0, y: 0, w: 1, h: 1 }))
       }
-      const ctx = canvas.getContext('2d', { willReadFrequently: true })
-      if (!ctx) return
+      if (hits.length < 2) {
+        pushHits(decodeCanvasFrame(video, canvas, { x: 0, y: 0.1, w: 0.58, h: 0.8 }))
+        pushHits(decodeCanvasFrame(video, canvas, { x: 0.42, y: 0.1, w: 0.58, h: 0.8 }))
+      }
 
-      ctx.drawImage(video, 0, 0, targetW, targetH)
-      const imageData = ctx.getImageData(0, 0, targetW, targetH)
-      const code = jsQR(imageData.data, targetW, targetH, {
-        inversionAttempts: 'attemptBoth'
-      })
-
-      if (code && code.data) {
-        const xs = [
-          code.location.topLeftCorner.x,
-          code.location.topRightCorner.x,
-          code.location.bottomLeftCorner.x,
-          code.location.bottomRightCorner.x
-        ]
-        const ys = [
-          code.location.topLeftCorner.y,
-          code.location.topRightCorner.y,
-          code.location.bottomLeftCorner.y,
-          code.location.bottomRightCorner.y
-        ]
-        const minX = Math.min(...xs)
-        const maxX = Math.max(...xs)
-        const minY = Math.min(...ys)
-        const maxY = Math.max(...ys)
-
-        detectedBoxes.value = [
-          {
-            rawValue: code.data,
-            style: computeViewportBoxStyle(
-              minX,
-              minY,
-              Math.max(maxX - minX, 24),
-              Math.max(maxY - minY, 24),
-              targetW,
-              targetH,
-              viewport
-            )
-          }
-        ]
-        await handleDecodedQrText(code.data)
+      if (hits.length > 0) {
+        detectedBoxes.value = hits.map((h) => ({
+          rawValue: h.rawValue,
+          style: computeViewportBoxStyle(
+            h.normBox.x * vw,
+            h.normBox.y * vh,
+            h.normBox.w * vw,
+            h.normBox.h * vh,
+            vw,
+            vh,
+            viewport
+          )
+        }))
+        for (const h of hits) {
+          await handleDecodedQrText(h.rawValue)
+        }
       } else {
         detectedBoxes.value = []
       }
@@ -1218,8 +1241,8 @@ const filteredInvoices = computed(() => {
   }
 
   list.sort((a, b) => {
-    const dateA = (a.purchase_datetime || a.purchase_date).replaceAll('/', '').replaceAll('-', '')
-    const dateB = (b.purchase_datetime || b.purchase_date).replaceAll('/', '').replaceAll('-', '')
+    const dateA = a.purchase_date.replaceAll('/', '').replaceAll('-', '')
+    const dateB = b.purchase_date.replaceAll('/', '').replaceAll('-', '')
     return sortDesc.value ? dateB.localeCompare(dateA) : dateA.localeCompare(dateB)
   })
 
@@ -1264,7 +1287,14 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描說明】\n1. 左右 QR Code 可同時入鏡合併；若先掃左側主 QR，再掃右側「**」延伸 QR 也會自動補齊明細。\n2. 掃描完成會留在相機畫面，方便連續掃描或點「前往發票存摺」查看。\n3. 由於 QR Code 不含時分秒，需要精確到秒時可在發票明細內直接補填時間。')
+  alert('【掃描說明】\n1. 左右 QR Code 可同時入鏡合併；先左後右或先右後左（間隔約 0.5～1.5 秒內）也會自動配對補齊明細。\n2. 掃描完成會留在相機畫面，方便連續掃描或點「前往發票存摺」查看。')
+}
+
+const normalizeDateOnly = (rawVal) => {
+  const str = String(rawVal || '').trim()
+  if (!str) return '2026/10/30'
+  const dateOnly = str.slice(0, 10).replaceAll('-', '/')
+  return dateOnly
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr') => {
@@ -1287,25 +1317,9 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
     inputMeta.merchantName ||
     (sellerBan ? `賣方 ${sellerBan}` : `預設${categoryName}推估（${cleanNum.slice(0, 2)}字軌）`)
 
-  const inputDateClean = (inputMeta.invoiceDate || '').trim()
-  const inputDatetimeClean = (inputMeta.purchaseDatetime || '').trim()
-  const backendDt = (backendData.purchase_datetime || '').trim()
-  const isBackendPlaceholderTime = backendDt.endsWith('19:34:37')
-
-  const rawDatetime =
-    inputDatetimeClean ||
-    (!isBackendPlaceholderTime && backendDt) ||
-    (inputDateClean
-      ? `${inputDateClean.replaceAll('/', '-')} 00:00:00`
-      : backendData.purchase_date
-      ? `${backendData.purchase_date.replaceAll('/', '-')} 00:00:00`
-      : '2026-10-30 00:00:00')
-
-  const formattedDate = inputDateClean
-    ? inputDateClean.replaceAll('-', '/')
-    : backendData.purchase_date
-    ? backendData.purchase_date.replaceAll('-', '/')
-    : rawDatetime.slice(0, 10).replaceAll('-', '/')
+  const formattedDate = normalizeDateOnly(
+    inputMeta.invoiceDate || backendData.purchase_date || backendData.purchase_datetime || '2026-10-30'
+  )
 
   const rawBackendItems = Array.isArray(backendData.items) ? backendData.items : []
   const validBackendItems = rawBackendItems.filter((it) => {
@@ -1355,7 +1369,6 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
     invoice_number: cleanNum,
     merchant_name: merchantName,
     category_name: categoryName,
-    purchase_datetime: rawDatetime,
     purchase_date: formattedDate,
     random_code: inputMeta.randomCode || backendData.random_code || '',
     summary_title: summaryTitle,
@@ -1449,15 +1462,10 @@ const submitManualInvoice = () => {
   const serial = manualForm.serialNumber.trim()
   const fullNumber = `${track}${serial}`
   const cleanDate = manualForm.invoiceDate.trim().replaceAll('/', '-')
-  const cleanTime = (manualForm.invoiceTime || '00:00:00').trim()
-  const fullDatetime = /^\d{2}:\d{2}(:\d{2})?$/.test(cleanTime)
-    ? `${cleanDate} ${cleanTime.length === 5 ? `${cleanTime}:00` : cleanTime}`
-    : `${cleanDate} 00:00:00`
 
   const meta = {
     invoiceType: manualForm.invoiceType,
     invoiceDate: cleanDate,
-    purchaseDatetime: fullDatetime,
     invoiceNumber: fullNumber,
     totalAmount: Number(manualForm.totalAmount),
     randomCode: manualForm.randomCode.trim()
@@ -2069,43 +2077,6 @@ const handleLogout = async () => {
 
 .detail-meta-box p {
   margin: 0;
-}
-
-.inline-time-edit-row {
-  display: flex;
-  gap: 0.45rem;
-  align-items: center;
-  margin: 0.15rem 0;
-}
-
-.inline-time-input {
-  flex: 1;
-  padding: 0.42rem 0.65rem;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font-size: 0.84rem;
-  outline: none;
-  box-sizing: border-box;
-}
-
-.inline-time-input:focus {
-  border-color: #059669;
-}
-
-.inline-time-save-btn {
-  background-color: #059669;
-  color: #ffffff;
-  border: none;
-  padding: 0.44rem 0.75rem;
-  border-radius: 8px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.inline-time-save-btn:hover {
-  background-color: #047857;
 }
 
 .detail-items-list {
@@ -2810,12 +2781,6 @@ input:checked + .slider:before { transform: translateX(20px); }
 .form-select {
   background-color: #ffffff;
   color: #111827;
-}
-
-.split-datetime-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.65rem;
 }
 
 .split-code-row {
