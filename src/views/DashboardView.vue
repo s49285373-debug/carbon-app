@@ -151,12 +151,7 @@
                 <div class="record-bottom-tags">
                   <span class="tag-carbon">🌿 {{ inv.carbon_kg }} kg CO₂e</span>
                   <div class="record-right-actions">
-                    <span
-                      class="tag-source"
-                      :class="inv.source_type === 'manual' ? 'source-manual' : 'source-electronic'"
-                    >
-                      {{ inv.source_type === 'manual' ? '手動輸入' : '電子發票' }}
-                    </span>
+                    <span class="tag-source source-electronic">電子發票</span>
                     <button
                       type="button"
                       class="tag-delete-btn"
@@ -170,8 +165,8 @@
             </div>
 
             <div v-else class="empty-invoice-state">
-              <p>尚未掃描或輸入任何發票</p>
-              <button class="primary-action-btn" @click="openScanTab">前往掃描或手動輸入</button>
+              <p>尚未掃描任何發票</p>
+              <button class="primary-action-btn" @click="openScanTab">前往掃描發票</button>
             </div>
           </div>
         </div>
@@ -184,10 +179,9 @@
           <div class="scanner-top-bar">
             <button class="scanner-text-btn" @click="currentTab = 'home'">&lt; 返回</button>
             <span class="scanner-bar-title">掃描發票</span>
-            <button class="scanner-text-btn" @click="openManualModal">手動輸入</button>
+            <span class="scanner-topbar-spacer"></span>
           </div>
 
-          <!-- 中間滿版相機取景與動態 QR 綠框定位區 -->
           <div class="camera-viewport" ref="viewportRef">
             <video
               ref="videoRef"
@@ -199,7 +193,6 @@
             ></video>
             <canvas ref="decodeCanvasRef" class="hidden-decode-canvas"></canvas>
 
-            <!-- 即時追蹤 QR Code 實際座標的動態綠色方框層 -->
             <div class="qr-bounding-layer">
               <div
                 v-for="(box, idx) in detectedBoxes"
@@ -229,7 +222,6 @@
                 </button>
               </div>
 
-              <!-- 中央白色四角對焦框 -->
               <div class="focus-frame" :class="{ 'is-detected': detectedBoxes.length > 0 || qrPulseDetected }">
                 <span class="corner top-left"></span>
                 <span class="corner top-right"></span>
@@ -248,7 +240,7 @@
                 <div class="camera-hint-box" v-else-if="isExtracting || scanError || !isCameraRunning">
                   <p v-if="isExtracting" class="hint-text">⏳ 正在解析發票與碳足跡...</p>
                   <div v-else-if="scanError" class="error-hint-box">
-                    <p class="error-text">⚠️ {{ cameraStatusMsg || '無法啟動相機，請確認 HTTPS 與權限或點「手動輸入」' }}</p>
+                    <p class="error-text">⚠️ {{ cameraStatusMsg || '無法啟動相機，請確認 HTTPS 與相機權限' }}</p>
                     <button class="retry-btn" @click="startCameraScanner">重新開啟相機</button>
                   </div>
                   <p v-else class="hint-text">正在啟動相機，請稍候...</p>
@@ -269,7 +261,6 @@
             </div>
           </div>
 
-          <!-- 底部白色操作與示意說明區 -->
           <div class="scanner-bottom-sheet">
             <div class="invoice-type-tabs">
               <button
@@ -324,7 +315,7 @@
                   <div class="receipt-header">傳統長條型統一發票</div>
                   <div class="receipt-period">115年09-10月</div>
                   <div class="receipt-num">CD-55667788</div>
-                  <p class="trad-hint">請點擊右上角「手動輸入」登錄發票資訊</p>
+                  <p class="trad-hint">請將發票 QR Code 對準上方鏡頭掃描</p>
                 </div>
               </div>
             </div>
@@ -338,85 +329,6 @@
                 {{ isExtracting ? '解析中...' : '模擬成功掃描解析' }}
               </button>
               <button class="secondary-outline-btn" @click="scanError = true">模擬光線不足失敗</button>
-            </div>
-          </div>
-
-          <!-- 手動輸入發票彈窗 -->
-          <div v-if="showManualModal" class="manual-modal-overlay" @click.self="showManualModal = false">
-            <div class="manual-modal-card manual-sheet-card">
-              <div class="manual-modal-topbar">
-                <button type="button" class="manual-back-btn" @click="showManualModal = false">&lt; 返回</button>
-                <h4>手動輸入</h4>
-                <span class="manual-topbar-spacer"></span>
-              </div>
-
-              <div class="input-group">
-                <label>發票類型 <span class="req-star">*</span></label>
-                <select v-model="manualForm.invoiceType" class="form-input form-select">
-                  <option value="electronic">電子發票證明聯</option>
-                  <option value="traditional">傳統發票</option>
-                </select>
-              </div>
-
-              <div class="input-group">
-                <label>發票日期 <span class="req-star">*</span></label>
-                <input
-                  type="text"
-                  v-model="manualForm.invoiceDate"
-                  placeholder="例如：2026-09-30"
-                  class="form-input"
-                />
-              </div>
-
-              <div class="input-group">
-                <label>發票號碼 <span class="req-star">*</span></label>
-                <div class="split-code-row">
-                  <input
-                    type="text"
-                    v-model="manualForm.trackCode"
-                    maxlength="2"
-                    placeholder="發票字軌2碼"
-                    class="form-input split-prefix"
-                  />
-                  <input
-                    type="text"
-                    v-model="manualForm.serialNumber"
-                    maxlength="8"
-                    placeholder="發票號碼8碼"
-                    class="form-input split-number"
-                  />
-                </div>
-              </div>
-
-              <div class="input-group">
-                <label>發票金額 <span class="req-star">*</span></label>
-                <input
-                  type="number"
-                  v-model.number="manualForm.totalAmount"
-                  placeholder="請輸入總計"
-                  class="form-input"
-                />
-              </div>
-
-              <div class="input-group">
-                <label>隨機碼 <span class="req-star">*</span></label>
-                <input
-                  type="text"
-                  v-model="manualForm.randomCode"
-                  maxlength="4"
-                  placeholder="請輸入隨機碼4碼"
-                  class="form-input"
-                />
-              </div>
-
-              <button
-                type="button"
-                class="save-passbook-btn"
-                :disabled="isExtracting || !isManualFormValid"
-                @click="submitManualInvoice"
-              >
-                {{ isExtracting ? '儲存與解析中...' : '確認儲存至發票存摺' }}
-              </button>
             </div>
           </div>
 
@@ -482,26 +394,49 @@
 
     <!-- 發票明細檢視彈窗 -->
     <div v-if="selectedInvoiceDetail" class="manual-modal-overlay" @click.self="selectedInvoiceDetail = null">
-      <div class="manual-modal-card">
-        <h4>🧾 發票消費與碳排明細</h4>
-        <div class="detail-meta-box">
-          <p><strong>發票號碼：</strong>{{ selectedInvoiceDetail.invoice_number }}</p>
-          <p><strong>推估方式：</strong>{{ selectedInvoiceDetail.calc_label }}</p>
-          <p><strong>店家／類別：</strong>{{ selectedInvoiceDetail.merchant_name }}</p>
-          <p><strong>購買日期：</strong>{{ selectedInvoiceDetail.purchase_date }}</p>
-          <p><strong>隨機碼：</strong>{{ selectedInvoiceDetail.random_code || '—' }}</p>
-          <p><strong>登錄方式：</strong>{{ selectedInvoiceDetail.source_type === 'manual' ? '手動輸入' : '電子發票' }}</p>
-          <p><strong>推估碳排：</strong>{{ selectedInvoiceDetail.carbon_kg }} kg CO₂e（隱形碳成本 {{ selectedInvoiceDetail.hidden_carbon_cost }} 元）</p>
+      <div class="manual-modal-card receipt-detail-modal">
+        <div class="detail-top-header">
+          <span class="detail-period-badge">{{ periods[currentPeriodIndex] }}</span>
+          <h4 class="detail-invoice-no">{{ selectedInvoiceDetail.invoice_number }}</h4>
+          <p class="detail-date-line">{{ selectedInvoiceDetail.purchase_date }}</p>
         </div>
-        <div class="detail-items-list" v-if="selectedInvoiceDetail.items && selectedInvoiceDetail.items.length > 0">
+
+        <div class="detail-meta-box">
+          <p>
+            <strong>店家／類別：</strong>
+            {{
+              selectedInvoiceDetail.merchant_name ||
+              `${selectedInvoiceDetail.store_name || '未提供店家'} · ${selectedInvoiceDetail.category_name || '一般消費'}`
+            }}
+          </p>
+          <p v-if="selectedInvoiceDetail.seller_tax_id">
+            <strong>營業人統編：</strong>{{ selectedInvoiceDetail.seller_tax_id }}
+          </p>
+          <p><strong>隨機碼：</strong>{{ selectedInvoiceDetail.random_code || '—' }}</p>
+          <p><strong>登錄方式：</strong>電子發票</p>
+        </div>
+
+        <div class="detail-items-section" v-if="selectedInvoiceDetail.items && selectedInvoiceDetail.items.length > 0">
+          <div class="detail-items-head">
+            <span>品名</span>
+            <span>數量</span>
+            <span>小計</span>
+          </div>
           <div class="detail-item-row" v-for="(item, idx) in selectedInvoiceDetail.items" :key="idx">
-            <span>{{ item.item_name }} × {{ item.quantity }}</span>
-            <span>TWD {{ item.amount }}</span>
+            <span class="detail-item-name">{{ item.item_name }}</span>
+            <span class="detail-item-qty">x{{ item.quantity }}</span>
+            <span class="detail-item-amt">{{ item.amount }}</span>
           </div>
         </div>
         <p v-else class="fallback-detail-note">
-          此筆發票無逐項商品明細，不產生假商品，已依發票金額與預設類別係數完成碳排推估。
+          此筆發票無逐項商品明細。
         </p>
+
+        <div class="detail-total-bar">
+          <span>合計金額</span>
+          <strong>TWD {{ Number(selectedInvoiceDetail.total_amount || 0).toLocaleString() }}</strong>
+        </div>
+
         <div class="modal-btn-row">
           <button class="delete-modal-btn" @click="deleteInvoice(selectedInvoiceDetail.id)">刪除此筆</button>
           <button class="primary-action-btn" @click="selectedInvoiceDetail = null">關閉</button>
@@ -537,7 +472,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import jsQR from 'jsqr'
 
@@ -547,7 +482,6 @@ const currentTab = ref('home')
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
-// 原生相機與掃描狀態
 const viewportRef = ref(null)
 const videoRef = ref(null)
 const decodeCanvasRef = ref(null)
@@ -562,7 +496,6 @@ const lastExtractedInvoice = ref(null)
 const isCameraRunning = ref(false)
 const cameraStatusMsg = ref('')
 
-// 動態綠框座標、「發票已存在」提示與掃碼綠框脈衝狀態
 const detectedBoxes = ref([])
 const qrPulseDetected = ref(false)
 const duplicateAlertMsg = ref('')
@@ -572,27 +505,14 @@ let qrPulseTimer = null
 let lastRawScannedText = ''
 let lastRawScannedAt = 0
 
-// 左右 QR 合併暫存狀態（支援同一幀同時抓到、先左後右，以及先右後左 0.5～1.5 秒內配對）
 let pendingLeftQr = null
 let pendingRightItems = []
 let pendingRightAt = 0
 let mergeFlushTimer = null
 const RIGHT_QR_HOLD_MS = 1500
 
-// 手動輸入表單狀態
-const showManualModal = ref(false)
-const manualForm = reactive({
-  invoiceType: 'electronic',
-  invoiceDate: '',
-  trackCode: '',
-  serialNumber: '',
-  totalAmount: null,
-  randomCode: ''
-})
-
-// 發票存摺狀態
 const periods = ['115年07–08月', '115年09–10月', '115年11–12月']
-const currentPeriodIndex = ref(1)
+const currentPeriodIndex = ref(2)
 const showSearchBar = ref(false)
 const searchKeyword = ref('')
 const sourceFilter = ref('all')
@@ -600,28 +520,20 @@ const sortDesc = ref(true)
 const selectedInvoiceDetail = ref(null)
 const invoiceList = ref([])
 
-const openInvoiceDetail = (inv) => {
-  selectedInvoiceDetail.value = inv
+const MERCHANT_BAN_MAP = {
+  // 可依需要補上常見賣方統編與店名，例如：
+  // '56801904': '蝦皮購物',
+  // '22099131': '統一超商 (7-ELEVEN)',
+  // '22555003': '全家便利商店'
 }
 
-const isManualFormValid = computed(() => {
-  return (
-    manualForm.invoiceDate.trim().length > 0 &&
-    manualForm.trackCode.trim().length === 2 &&
-    manualForm.serialNumber.trim().length === 8 &&
-    Number(manualForm.totalAmount) > 0 &&
-    manualForm.randomCode.trim().length === 4
-  )
-})
+const TRACK_CATEGORY_MAP = {
+  FT: '一般消費',
+  FG: '餐飲消費'
+}
 
-const openManualModal = () => {
-  manualForm.invoiceType = invoiceType.value
-  manualForm.invoiceDate = ''
-  manualForm.trackCode = ''
-  manualForm.serialNumber = ''
-  manualForm.totalAmount = null
-  manualForm.randomCode = ''
-  showManualModal.value = true
+const openInvoiceDetail = (inv) => {
+  selectedInvoiceDetail.value = inv
 }
 
 const triggerGreenPulse = () => {
@@ -656,9 +568,6 @@ const stopScanLoop = () => {
   qrPulseDetected.value = false
 }
 
-/**
- * 解析台灣電子發票 QR Code 字串（支援左側表頭 77 碼起算 + 右側 ** 延伸明細與負值折扣品項）
- */
 const parseTaiwanInvoiceQr = (rawPayload) => {
   const result = {
     isExtensionOnly: false,
@@ -696,7 +605,6 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
     return parsedItems
   }
 
-  // 右側延伸 QR Code（通常以 ** 開頭，接續品名:數量:單價/金額）
   if (text.startsWith('**')) {
     result.isExtensionOnly = true
     const body = text.slice(2)
@@ -707,7 +615,6 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
   if (text.length >= 21 && /^[A-Z]{2}\d{8}/i.test(text)) {
     result.invoiceNumber = text.slice(0, 10).toUpperCase()
 
-    // 民國 7 碼（YYYMMDD），例如 1150930 -> 2026-09-30
     const roc = text.slice(10, 17)
     if (/^\d{7}$/.test(roc)) {
       result.rocDate = roc
@@ -717,13 +624,11 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       result.isoDate = `${westernYear}-${mm}-${dd}`
     }
 
-    // 隨機碼 4 碼
     const rand = text.slice(17, 21)
     if (/^\d{4}$/.test(rand)) {
       result.randomCode = rand
     }
 
-    // 銷售額（21..29）與總計金額（29..37）
     if (text.length >= 37) {
       const salesHex = text.slice(21, 29)
       const totalHex = text.slice(29, 37)
@@ -742,7 +647,6 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       result.totalAmount = parseAmountField(totalHex) || result.salesAmount
     }
 
-    // 買方統編（37..45）與賣方統編（45..53）
     if (text.length >= 53) {
       const buyer = text.slice(37, 45)
       const seller = text.slice(45, 53)
@@ -754,7 +658,6 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       }
     }
 
-    // 77 碼之後通常為「編碼/品項數/筆數/語系:品名:數量:單價/金額:...」
     if (text.length > 77) {
       const tail = text.slice(77)
       const colonIdx = tail.indexOf(':')
@@ -781,9 +684,6 @@ const mergeUniqueItems = (baseItems = [], extraItems = []) => {
   return merged
 }
 
-/**
- * 若單獨掃到右側延伸 QR（** 開頭）且逾時未配對到新的左側主 QR，將新明細併入既有最新發票
- */
 const mergeExtensionItemsToLatestInvoice = (extItems) => {
   const target = lastExtractedInvoice.value
     ? invoiceList.value.find(inv => inv.invoice_number === lastExtractedInvoice.value.invoice_number)
@@ -870,9 +770,6 @@ const handleDecodedQrText = async (decodedText) => {
 
   const parsedQr = parseTaiwanInvoiceQr(cleanText)
 
-  // 1. 右側延伸 QR（** 開頭）：
-  // - 若左邊正在等合併，直接一起送出
-  // - 若左邊還沒掃到，先暫存 RIGHT_QR_HOLD_MS（1.5 秒）等左邊主 QR；逾時未等到再併入最新既有發票
   if (parsedQr.isExtensionOnly || cleanText.startsWith('**')) {
     if (pendingLeftQr) {
       pendingRightItems = mergeUniqueItems(pendingRightItems, parsedQr.items)
@@ -899,7 +796,6 @@ const handleDecodedQrText = async (decodedText) => {
     return
   }
 
-  // 2. 左側主 QR：檢查是否已存在
   if (parsedQr.invoiceNumber && /^[A-Z]{2}\d{8}$/.test(parsedQr.invoiceNumber)) {
     const exists = invoiceList.value.some(inv => inv.invoice_number === parsedQr.invoiceNumber)
     if (exists) {
@@ -911,7 +807,6 @@ const handleDecodedQrText = async (decodedText) => {
     }
   }
 
-  // 若已有另一張待處理的左側主 QR，先完成前一筆
   if (pendingLeftQr && pendingLeftQr.parsed.invoiceNumber !== parsedQr.invoiceNumber) {
     await flushPendingInvoice()
   }
@@ -1029,7 +924,6 @@ const startNativeQrLoop = () => {
       }
     }
 
-    // 1. 先試原生 BarcodeDetector（同一幀可同時回傳多顆 QR）
     if (detector) {
       try {
         const barcodes = await detector.detect(video)
@@ -1051,7 +945,6 @@ const startNativeQrLoop = () => {
       }
     }
 
-    // 2. 依序掃全圖、放大重疊的左半區與右半區，盡量在同一輪把左右兩顆 QR 都抓齊
     try {
       if (hits.length === 0) {
         pushHits(decodeCanvasFrame(video, canvas, { x: 0, y: 0, w: 1, h: 1 }))
@@ -1112,7 +1005,7 @@ const startCameraScanner = async () => {
   const video = videoRef.value
   if (!video || !navigator.mediaDevices?.getUserMedia) {
     scanError.value = true
-    cameraStatusMsg.value = '此瀏覽器不支援相機存取，請使用 HTTPS 或點「手動輸入」'
+    cameraStatusMsg.value = '此瀏覽器不支援相機存取，請使用 HTTPS 並允許相機權限'
     return
   }
 
@@ -1169,14 +1062,6 @@ watch(currentTab, async (newTab, oldTab) => {
   }
 })
 
-watch(showManualModal, async (isOpen) => {
-  if (isOpen) {
-    await stopCameraScanner()
-  } else if (currentTab.value === 'scan') {
-    await startCameraScanner()
-  }
-})
-
 onMounted(() => {
   const savedNickname = localStorage.getItem('user_nickname')
   if (savedNickname) {
@@ -1217,18 +1102,11 @@ const totalCarbonSum = computed(() => {
 
 const sourceFilterLabel = computed(() => {
   if (sourceFilter.value === 'electronic') return '僅看電子發票'
-  if (sourceFilter.value === 'manual') return '僅看手動輸入'
   return '全部發票來源'
 })
 
 const filteredInvoices = computed(() => {
   let list = [...invoiceList.value]
-
-  if (sourceFilter.value === 'electronic') {
-    list = list.filter(i => i.source_type !== 'manual')
-  } else if (sourceFilter.value === 'manual') {
-    list = list.filter(i => i.source_type === 'manual')
-  }
 
   if (searchKeyword.value.trim()) {
     const kw = searchKeyword.value.trim().toLowerCase()
@@ -1277,9 +1155,7 @@ const toggleSearchInput = () => {
 }
 
 const cycleSourceFilter = () => {
-  if (sourceFilter.value === 'all') sourceFilter.value = 'electronic'
-  else if (sourceFilter.value === 'electronic') sourceFilter.value = 'manual'
-  else sourceFilter.value = 'all'
+  sourceFilter.value = sourceFilter.value === 'all' ? 'electronic' : 'all'
 }
 
 const toggleSortOrder = () => {
@@ -1293,11 +1169,10 @@ const alertHelp = () => {
 const normalizeDateOnly = (rawVal) => {
   const str = String(rawVal || '').trim()
   if (!str) return '2026/10/30'
-  const dateOnly = str.slice(0, 10).replaceAll('-', '/')
-  return dateOnly
+  return str.slice(0, 10).replaceAll('-', '/')
 }
 
-const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr') => {
+const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
   const cleanNum = (
     backendData.invoice_number ||
     inputMeta.invoiceNumber ||
@@ -1307,15 +1182,36 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
     .replaceAll('-', '')
     .trim()
 
-  const categoryName = backendData.category_name || '一般消費'
-  const sellerBan = backendData.seller_ban || inputMeta.sellerBan || ''
-  const rawBackendMerchant = (backendData.merchant_name || '').trim()
-  const isGenericBackendMerchant = !rawBackendMerchant || /^賣方\s*\d+$/.test(rawBackendMerchant)
+  const trackPrefix = cleanNum.slice(0, 2)
+  const sellerBan = String(
+    backendData.seller_tax_id || backendData.seller_ban || inputMeta.sellerBan || ''
+  ).trim()
+  const categoryName =
+    backendData.category_name ||
+    inputMeta.categoryName ||
+    TRACK_CATEGORY_MAP[trackPrefix] ||
+    '一般消費'
 
-  const merchantName =
-    (!isGenericBackendMerchant && rawBackendMerchant) ||
+  const rawBackendMerchant = String(backendData.merchant_name || '').trim()
+  const cleanBackendMerchant = rawBackendMerchant.includes(' · ')
+    ? rawBackendMerchant.split(' · ')[0].trim()
+    : rawBackendMerchant
+
+  const isGenericBackendMerchant =
+    !cleanBackendMerchant ||
+    /^賣方\s*\d+$/.test(cleanBackendMerchant) ||
+    /^統編\s*\d+$/.test(cleanBackendMerchant) ||
+    /字軌$/.test(cleanBackendMerchant) ||
+    cleanBackendMerchant === sellerBan
+
+  const mappedMerchant = sellerBan ? MERCHANT_BAN_MAP[sellerBan] : ''
+  const storeDisplay =
+    (!isGenericBackendMerchant && cleanBackendMerchant) ||
     inputMeta.merchantName ||
-    (sellerBan ? `賣方 ${sellerBan}` : `預設${categoryName}推估（${cleanNum.slice(0, 2)}字軌）`)
+    mappedMerchant ||
+    (sellerBan ? `統編 ${sellerBan}` : `${trackPrefix}字軌`)
+
+  const merchantName = `${storeDisplay} · ${categoryName}`
 
   const formattedDate = normalizeDateOnly(
     inputMeta.invoiceDate || backendData.purchase_date || backendData.purchase_datetime || '2026-10-30'
@@ -1368,7 +1264,9 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
     id: backendData.invoice_id || Date.now() + Math.random(),
     invoice_number: cleanNum,
     merchant_name: merchantName,
+    store_name: storeDisplay,
     category_name: categoryName,
+    seller_tax_id: sellerBan,
     purchase_date: formattedDate,
     random_code: inputMeta.randomCode || backendData.random_code || '',
     summary_title: summaryTitle,
@@ -1376,7 +1274,7 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
     carbon_kg: estimatedCarbon,
     hidden_carbon_cost: hiddenCost,
     calc_label: calcLabel,
-    source_type: sourceType === 'manual' ? 'manual' : 'electronic',
+    source_type: 'electronic',
     items
   }
 }
@@ -1405,7 +1303,7 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
   } catch (err) {
     console.warn('後端未回應，改用前端 QR 解析與預設類別係數推估：', err)
   } finally {
-    const record = resolveInvoiceRecord(inputMeta, backendData, sourceType)
+    const record = resolveInvoiceRecord(inputMeta, backendData)
 
     const alreadyExists = invoiceList.value.some(
       inv => inv.invoice_number === record.invoice_number
@@ -1427,11 +1325,6 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
     setTimeout(() => {
       successToastMsg.value = ''
     }, 2000)
-
-    if (sourceType === 'manual') {
-      await stopCameraScanner()
-      currentTab.value = 'invoices'
-    }
   }
 }
 
@@ -1450,30 +1343,6 @@ const simulateScan = () => {
     sampleQr,
     'qr_simulated'
   )
-}
-
-const submitManualInvoice = () => {
-  if (!isManualFormValid.value) {
-    alert('請完整填寫發票日期、字軌2碼、號碼8碼、發票金額與隨機碼4碼')
-    return
-  }
-
-  const track = manualForm.trackCode.trim().toUpperCase()
-  const serial = manualForm.serialNumber.trim()
-  const fullNumber = `${track}${serial}`
-  const cleanDate = manualForm.invoiceDate.trim().replaceAll('/', '-')
-
-  const meta = {
-    invoiceType: manualForm.invoiceType,
-    invoiceDate: cleanDate,
-    invoiceNumber: fullNumber,
-    totalAmount: Number(manualForm.totalAmount),
-    randomCode: manualForm.randomCode.trim()
-  }
-
-  const payload = JSON.stringify(meta)
-  showManualModal.value = false
-  processInvoiceLookup(meta, payload, 'manual')
 }
 
 const handleLogout = async () => {
@@ -1972,11 +1841,6 @@ const handleLogout = async () => {
   color: #3730a3;
 }
 
-.source-manual {
-  background-color: #ccfbf1;
-  color: #115e59;
-}
-
 .tag-delete-btn {
   background-color: #fee2e2;
   color: #b91c1c;
@@ -2065,6 +1929,44 @@ const handleLogout = async () => {
   color: #065f46;
 }
 
+.receipt-detail-modal {
+  max-width: 420px;
+  max-height: 85vh;
+  overflow-y: auto;
+  gap: 0.85rem;
+}
+
+.detail-top-header {
+  text-align: center;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px dashed #d1d5db;
+}
+
+.detail-period-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #4c1d95;
+  background-color: #ede9fe;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  margin-bottom: 0.35rem;
+}
+
+.detail-invoice-no {
+  margin: 0.15rem 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #111827;
+  letter-spacing: 0.5px;
+}
+
+.detail-date-line {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #4b5563;
+}
+
 .detail-meta-box {
   background-color: #f9fafb;
   padding: 0.85rem 1rem;
@@ -2079,19 +1981,60 @@ const handleLogout = async () => {
   margin: 0;
 }
 
-.detail-items-list {
+.detail-items-section {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.65rem;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  border-top: 1px solid #e5e7eb;
-  padding-top: 0.75rem;
+  gap: 0.5rem;
+}
+
+.detail-items-head {
+  display: grid;
+  grid-template-columns: 1fr 48px 72px;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #6b7280;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.detail-items-head span:nth-child(2),
+.detail-items-head span:nth-child(3) {
+  text-align: right;
 }
 
 .detail-item-row {
+  display: grid;
+  grid-template-columns: 1fr 48px 72px;
+  gap: 0.5rem;
+  align-items: start;
+  font-size: 0.88rem;
+  color: #1f2937;
+}
+
+.detail-item-name {
+  word-break: break-word;
+  line-height: 1.35;
+}
+
+.detail-item-qty,
+.detail-item-amt {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.detail-total-bar {
   display: flex;
   justify-content: space-between;
-  font-size: 0.9rem;
-  color: #1f2937;
+  align-items: center;
+  padding: 0.65rem 0.85rem;
+  background-color: #ecfdf5;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  color: #065f46;
 }
 
 .fallback-detail-note {
@@ -2289,6 +2232,10 @@ const handleLogout = async () => {
   font-size: 0.92rem;
   cursor: pointer;
   padding: 0.25rem 0.4rem;
+}
+
+.scanner-topbar-spacer {
+  width: 44px;
 }
 
 .camera-viewport {
@@ -2732,116 +2679,10 @@ input:checked + .slider:before { transform: translateX(20px); }
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
 }
 
-.manual-sheet-card {
-  max-width: 430px;
-  padding: 0 0 1.35rem 0;
-  overflow: hidden;
-  gap: 0.9rem;
-}
-
-.manual-modal-topbar {
-  background-color: #7c5dfa;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.9rem 1.15rem;
-}
-
-.manual-modal-topbar h4 {
-  color: #ffffff;
-  font-size: 1.05rem;
-  font-weight: 700;
-  margin: 0;
-}
-
-.manual-back-btn {
-  background: none;
-  border: none;
-  color: #ffffff;
-  font-size: 0.92rem;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0;
-}
-
-.manual-topbar-spacer {
-  width: 44px;
-}
-
-.manual-sheet-card .input-group {
-  padding: 0 1.25rem;
-}
-
-.req-star {
-  color: #ef4444;
-  font-weight: 700;
-}
-
-.form-select {
-  background-color: #ffffff;
-  color: #111827;
-}
-
-.split-code-row {
-  display: grid;
-  grid-template-columns: 115px 1fr;
-  gap: 0.65rem;
-}
-
-.save-passbook-btn {
-  margin: 0.35rem 1.25rem 0 1.25rem;
-  background-color: #059669;
-  color: #ffffff;
-  border: none;
-  padding: 0.85rem 1.25rem;
-  border-radius: 999px;
-  font-size: 0.98rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.save-passbook-btn:hover:not(:disabled) {
-  background-color: #047857;
-}
-
-.save-passbook-btn:disabled {
-  background-color: #e5e7eb;
-  color: #6b7280;
-  cursor: not-allowed;
-}
-
 .manual-modal-card h4 {
   margin: 0;
   font-size: 1.1rem;
   color: #111827;
-}
-
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.input-group label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #4b5563;
-}
-
-.form-input {
-  padding: 0.75rem 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  font-size: 0.95rem;
-  outline: none;
-  box-sizing: border-box;
-  width: 100%;
-}
-
-.form-input:focus {
-  border-color: #059669;
 }
 
 .modal-btn-row {
