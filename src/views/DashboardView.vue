@@ -547,6 +547,11 @@ const currentTab = ref('home')
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
+// 常見賣方統編店名對照（可依需要擴充）
+const SELLER_NAME_MAP = {
+  '60826810': '木棉花國際(股)公司台中一中營業所'
+}
+
 // 原生相機與掃描狀態
 const viewportRef = ref(null)
 const videoRef = ref(null)
@@ -634,6 +639,120 @@ const stopScanLoop = () => {
   qrPulseDetected.value = false
 }
 
+/**
+ * 解析台灣電子發票 QR Code 字串（左側表頭 77 碼起算 + 後續冒號分隔明細）
+ */
+const parseTaiwanInvoiceQr = (rawPayload) => {
+  const result = {
+    invoiceNumber: '',
+    rocDate: '',
+    isoDate: '',
+    randomCode: '',
+    salesAmount: 0,
+    totalAmount: 0,
+    buyerBan: '',
+    sellerBan: '',
+    merchantName: '',
+    items: []
+  }
+
+  if (typeof rawPayload !== 'string') return result
+  const text = rawPayload.trim()
+  if (!text) return result
+
+  // 支援右側 QR 或帶 ** 前綴的明細段
+  if (text.startsWith('**')) {
+    const body = text.slice(2)
+    const parts = body.split(':')
+    for (let i = 0; i + 2 < parts.length; i += 3) {
+      const name = (parts[i] || '').trim()
+      const qty = Number(parts[i + 1]) || 1
+      const amt = Number(parts[i + 2]) || 0
+      if (name) {
+        result.items.push({ item_name: name, quantity: qty, amount: amt })
+      }
+    }
+    if (result.items.length > 0) {
+      result.totalAmount = result.items.reduce((s, it) => s + Number(it.amount || 0), 0)
+    }
+    return result
+  }
+
+  if (text.length >= 21 && /^[A-Z]{2}\d{8}/i.test(text)) {
+    result.invoiceNumber = text.slice(0, 10).toUpperCase()
+
+    // 民國 7 碼（YYYMMDD），例如 1150930 -> 2026-09-30
+    const roc = text.slice(10, 17)
+    if (/^\d{7}$/.test(roc)) {
+      result.rocDate = roc
+      const westernYear = Number(roc.slice(0, 3)) + 1911
+      const mm = roc.slice(3, 5)
+      const dd = roc.slice(5, 7)
+      result.isoDate = `${westernYear}-${mm}-${dd}`
+    }
+
+    // 隨機碼 4 碼
+    const rand = text.slice(17, 21)
+    if (/^\d{4}$/.test(rand)) {
+      result.randomCode = rand
+    }
+
+    // 銷售額（21..29）與總計金額（29..37）：多為 8 碼十六進位，部分廠商為十進位
+    if (text.length >= 37) {
+      const salesHex = text.slice(21, 29)
+      const totalHex = text.slice(29, 37)
+      const parseAmountField = (str) => {
+        if (!str || str === '00000000') return 0
+        if (/^[0-9A-Fa-f]{8}$/.test(str)) {
+          const hexVal = parseInt(str, 16)
+          if (!Number.isNaN(hexVal) && hexVal > 0 && hexVal < 100000000) {
+            return hexVal
+          }
+        }
+        const decVal = Number(str)
+        return Number.isFinite(decVal) && decVal > 0 ? decVal : 0
+      }
+      result.salesAmount = parseAmountField(salesHex)
+      result.totalAmount = parseAmountField(totalHex) || result.salesAmount
+    }
+
+    // 買方統編（37..45）與賣方統編（45..53）
+    if (text.length >= 53) {
+      const buyer = text.slice(37, 45)
+      const seller = text.slice(45, 53)
+      if (/^\d{8}$/.test(buyer) && buyer !== '00000000') {
+        result.buyerBan = buyer
+      }
+      if (/^\d{8}$/.test(seller)) {
+        result.sellerBan = seller
+        if (SELLER_NAME_MAP[seller]) {
+          result.merchantName = SELLER_NAME_MAP[seller]
+        }
+      }
+    }
+
+    // 77 碼之後通常為「編碼/品項數/筆數/語系:品名:數量:單價/金額:...」
+    if (text.length > 77) {
+      const tail = text.slice(77)
+      const colonIdx = tail.indexOf(':')
+      const itemSection = colonIdx >= 0 ? tail.slice(colonIdx + 1) : ''
+      if (itemSection) {
+        const tokens = itemSection.split(':')
+        for (let i = 0; i + 2 < tokens.length; i += 3) {
+          const name = (tokens[i] || '').trim()
+          const qty = Number(tokens[i + 1]) || 1
+          const amt = Number(tokens[i + 2]) || 0
+          if (name) {
+            result.items.push({ item_name: name, quantity: qty, amount: amt })
+          }
+        }
+      }
+    }
+  }
+
+  return result
+}
+
 const handleDecodedQrText = async (decodedText) => {
   if (!decodedText || typeof decodedText !== 'string') return
   const cleanText = decodedText.trim()
@@ -650,9 +769,9 @@ const handleDecodedQrText = async (decodedText) => {
 
   if (isExtracting.value) return
 
-  const maybeInvNum = cleanText.slice(0, 10).toUpperCase()
-  if (/^[A-Z]{2}\d{8}$/.test(maybeInvNum)) {
-    const exists = invoiceList.value.some(inv => inv.invoice_number === maybeInvNum)
+  const parsedQr = parseTaiwanInvoiceQr(cleanText)
+  if (parsedQr.invoiceNumber && /^[A-Z]{2}\d{8}$/.test(parsedQr.invoiceNumber)) {
+    const exists = invoiceList.value.some(inv => inv.invoice_number === parsedQr.invoiceNumber)
     if (exists) {
       duplicateAlertMsg.value = '發票已存在'
       setTimeout(() => {
@@ -666,7 +785,16 @@ const handleDecodedQrText = async (decodedText) => {
     await stopCameraScanner()
   }
   await processInvoiceLookup(
-    { invoiceType: invoiceType.value },
+    {
+      invoiceType: invoiceType.value,
+      invoiceNumber: parsedQr.invoiceNumber,
+      invoiceDate: parsedQr.isoDate,
+      randomCode: parsedQr.randomCode,
+      totalAmount: parsedQr.totalAmount,
+      merchantName: parsedQr.merchantName,
+      sellerBan: parsedQr.sellerBan,
+      items: parsedQr.items
+    },
     cleanText,
     'qr'
   )
@@ -1007,18 +1135,21 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
     .trim()
 
   const categoryName = backendData.category_name || '一般消費'
+  const sellerBan = backendData.seller_ban || inputMeta.sellerBan || ''
   const merchantName =
     backendData.merchant_name ||
-    `預設${categoryName}推估（${cleanNum.slice(0, 2)}字軌）`
+    inputMeta.merchantName ||
+    (sellerBan && SELLER_NAME_MAP[sellerBan]) ||
+    (sellerBan ? `賣方 ${sellerBan}` : `預設${categoryName}推估（${cleanNum.slice(0, 2)}字軌）`)
 
   const inputDateClean = (inputMeta.invoiceDate || '').trim()
   const rawDatetime =
     backendData.purchase_datetime ||
     (inputDateClean
-      ? `${inputDateClean.replaceAll('/', '-')} 19:34:37`
+      ? `${inputDateClean.replaceAll('/', '-')} 00:00:00`
       : backendData.purchase_date
-      ? `${backendData.purchase_date} 19:34:37`
-      : '2026-10-30 19:34:37')
+      ? `${backendData.purchase_date.replaceAll('/', '-')} 00:00:00`
+      : '2026-10-30 00:00:00')
 
   const formattedDate = inputDateClean
     ? inputDateClean.replaceAll('-', '/')
@@ -1026,14 +1157,20 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
     ? backendData.purchase_date.replaceAll('-', '/')
     : rawDatetime.slice(0, 10).replaceAll('-', '/')
 
-  const totalAmount =
-    Number(inputMeta.totalAmount) > 0
-      ? Number(inputMeta.totalAmount)
-      : Number(backendData.total_amount) > 0
-      ? Number(backendData.total_amount)
-      : 0
+  const backendItems = Array.isArray(backendData.items) ? backendData.items : []
+  const inputItems = Array.isArray(inputMeta.items) ? inputMeta.items : []
+  const items = backendItems.length > 0 ? backendItems : inputItems
 
-  const items = Array.isArray(backendData.items) ? backendData.items : []
+  const itemsSum = items.reduce((s, it) => s + Number(it.amount || 0), 0)
+
+  const totalAmount =
+    Number(backendData.total_amount) > 0
+      ? Number(backendData.total_amount)
+      : Number(inputMeta.totalAmount) > 0
+      ? Number(inputMeta.totalAmount)
+      : itemsSum > 0
+      ? itemsSum
+      : 0
 
   const calcLabel =
     backendData.calc_label ||
@@ -1049,12 +1186,12 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}, sourceType = 'qr
       : `預設${categoryName}推估（無逐項明細）`
 
   const estimatedCarbon =
-    backendData.carbon_kg !== undefined
+    backendData.carbon_kg !== undefined && Number(backendData.carbon_kg) > 0
       ? Number(Number(backendData.carbon_kg).toFixed(2))
       : Number((totalAmount * 0.0015).toFixed(2))
 
   const hiddenCost =
-    backendData.hidden_carbon_cost !== undefined
+    backendData.hidden_carbon_cost !== undefined && Number(backendData.hidden_carbon_cost) > 0
       ? Number(Number(backendData.hidden_carbon_cost).toFixed(2))
       : Number((estimatedCarbon * 3.2).toFixed(2))
 
@@ -1098,7 +1235,7 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
       backendData = result?.data || {}
     }
   } catch (err) {
-    console.warn('後端未回應，改用預設類別係數推估：', err)
+    console.warn('後端未回應，改用前端 QR 解析與預設類別係數推估：', err)
   } finally {
     const record = resolveInvoiceRecord(inputMeta, backendData, sourceType)
 
