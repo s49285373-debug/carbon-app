@@ -323,13 +323,6 @@
             <p class="scanner-footer-note">
               左右 QR Code 可同時入鏡合併建檔；先左後右或先右後左（間隔約 0.5～1.5 秒內）也會自動配對補齊明細。
             </p>
-
-            <div class="demo-actions">
-              <button class="primary-action-btn" :disabled="isExtracting" @click="simulateScan">
-                {{ isExtracting ? '解析中...' : '模擬成功掃描解析' }}
-              </button>
-              <button class="secondary-outline-btn" @click="scanError = true">模擬光線不足失敗</button>
-            </div>
           </div>
 
         </div>
@@ -519,13 +512,6 @@ const sourceFilter = ref('all')
 const sortDesc = ref(true)
 const selectedInvoiceDetail = ref(null)
 const invoiceList = ref([])
-
-const MERCHANT_BAN_MAP = {
-  // 可依需要補上常見賣方統編與店名，例如：
-  // '56801904': '蝦皮購物',
-  // '22099131': '統一超商 (7-ELEVEN)',
-  // '22555003': '全家便利商店'
-}
 
 const TRACK_CATEGORY_MAP = {
   FT: '一般消費',
@@ -1204,11 +1190,9 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
     /字軌$/.test(cleanBackendMerchant) ||
     cleanBackendMerchant === sellerBan
 
-  const mappedMerchant = sellerBan ? MERCHANT_BAN_MAP[sellerBan] : ''
   const storeDisplay =
     (!isGenericBackendMerchant && cleanBackendMerchant) ||
     inputMeta.merchantName ||
-    mappedMerchant ||
     (sellerBan ? `統編 ${sellerBan}` : `${trackPrefix}字軌`)
 
   const merchantName = `${storeDisplay} · ${categoryName}`
@@ -1326,23 +1310,6 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
       successToastMsg.value = ''
     }, 2000)
   }
-}
-
-const simulateScan = () => {
-  triggerGreenPulse()
-  const sampleQr =
-    'FG499168921151030184800000593000005930000000087158388000000000000000000000000:招牌去骨炸雞:1:398:韓式炸年糕與薯條:1:195:'
-  processInvoiceLookup(
-    {
-      invoiceNumber: 'FG49916892',
-      invoiceDate: '2026-10-30',
-      totalAmount: 593,
-      randomCode: '1848',
-      invoiceType: invoiceType.value
-    },
-    sampleQr,
-    'qr_simulated'
-  )
 }
 
 const handleLogout = async () => {
@@ -2133,11 +2100,6 @@ const handleLogout = async () => {
   background-color: #047857;
 }
 
-.primary-action-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .delete-modal-btn {
   background-color: #fee2e2;
   color: #b91c1c;
@@ -2629,30 +2591,6 @@ input:checked + .slider:before { transform: translateX(20px); }
   max-width: 460px;
   line-height: 1.5;
   margin: 0;
-}
-
-.demo-actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  justify-content: center;
-  margin-top: 0.25rem;
-}
-
-.secondary-outline-btn {
-  background-color: #ffffff;
-  color: #4b5563;
-  border: 1px solid #d1d5db;
-  padding: 0.75rem 1.2rem;
-  border-radius: 12px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.secondary-outline-btn:hover {
-  background-color: #f3f4f6;
 }
 
 .manual-modal-overlay {
