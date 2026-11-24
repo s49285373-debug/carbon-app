@@ -170,7 +170,7 @@
       <template v-if="currentTab === 'scan'">
         <div class="scanner-wrapper" :class="{ 'is-trad-editor': invoiceType === 'traditional' }">
 
-          <!-- 頂部導覽列：電子發票為咖啡色「掃描發票」；傳統發票為第二張圖的紫色「編輯」 -->
+          <!-- 頂部導覽列：電子發票為咖啡色「掃描發票」；傳統發票為紫色「編輯」 -->
           <div class="scanner-top-bar" :class="{ 'official-editor-header': invoiceType === 'traditional' }">
             <button
               class="scanner-text-btn"
@@ -182,7 +182,7 @@
             <span class="scanner-topbar-spacer"></span>
           </div>
 
-          <!-- 電子發票模式：顯示相機鏡頭與底部導引卡 -->
+          <!-- 電子發票模式 -->
           <template v-if="invoiceType === 'electronic'">
             <div class="camera-viewport" ref="viewportRef">
               <video
@@ -329,7 +329,7 @@
             </div>
           </template>
 
-          <!-- 傳統發票模式：完全依照第二張圖（編輯）的欄位與版面 -->
+          <!-- 傳統發票模式：完全依照「編輯」畫面欄位配置 -->
           <template v-else>
             <div class="official-editor-body">
               <div class="official-field">
@@ -1131,6 +1131,7 @@ const submitTraditionalInvoice = async () => {
   invoiceList.value.unshift(saved)
   lastExtractedInvoice.value = saved
   resetTradEditorForm()
+  invoiceType.value = 'electronic'
   currentTab.value = 'invoices'
 }
 
@@ -3258,7 +3259,6 @@ input:checked + .slider:before { transform: translateX(20px); }
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
-/* 第二張圖（編輯）表單樣式 */
 .official-editor-body {
   background-color: #ffffff;
   color: #111827;
