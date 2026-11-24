@@ -20,7 +20,7 @@
         <section class="banner-card">
           <div class="banner-content">
             <h2>🧾 電子發票 QR 明細掃描</h2>
-            <p>快速掃描電子發票左右 QR Code，完整保留發票資訊與逐項商品明細。</p>
+            <p>快速掃描電子發票左右 QR Code，保留完整消費金額與實質商品明細以供碳排比對。</p>
           </div>
           <div class="banner-stats">
             <div class="mini-stat">
@@ -29,11 +29,11 @@
             </div>
             <div class="mini-stat">
               <span class="stat-num">{{ totalItemsCount }}</span>
-              <span class="stat-label">累計商品明細 (項)</span>
+              <span class="stat-label">實質商品明細 (項)</span>
             </div>
             <div class="mini-stat">
               <span class="stat-num">TWD {{ totalAmountSum.toLocaleString() }}</span>
-              <span class="stat-label">累計消費金額</span>
+              <span class="stat-label">累計實付金額</span>
             </div>
           </div>
         </section>
@@ -93,14 +93,14 @@
 
             <div class="period-summary-card">
               <span class="summary-corner-badge">明細清單</span>
-              <div class="summary-subtitle">本期消費總金額</div>
+              <div class="summary-subtitle">本期實付總金額</div>
               <div class="summary-main-row">
                 <span class="summary-amount">TWD {{ filteredTotalAmount.toLocaleString() }}</span>
                 <span class="summary-divider">|</span>
                 <span class="summary-count">{{ filteredInvoices.length }} 張</span>
               </div>
               <div class="summary-info-pill">
-                📦 本期共擷取 <strong>{{ filteredTotalItemsCount }}</strong> 筆商品明細
+                📦 本期共擷取 <strong>{{ filteredTotalItemsCount }}</strong> 項實質商品（供商品對商品碳排比對）
               </div>
             </div>
 
@@ -138,7 +138,7 @@
                 </div>
 
                 <div class="record-bottom-tags">
-                  <span class="tag-items">📦 {{ (inv.items || []).length }} 項商品</span>
+                  <span class="tag-items">📦 {{ getBillableCarbonItems(inv.items).length }} 項商品</span>
                   <div class="record-right-actions">
                     <span class="tag-source source-electronic">電子發票</span>
                     <button
@@ -279,7 +279,12 @@
                 </div>
               </div>
               <div v-if="lastExtractedInvoice.items && lastExtractedInvoice.items.length > 0" class="latest-extracted-items">
-                <span v-for="(item, idx) in lastExtractedInvoice.items" :key="idx" class="item-chip">
+                <span
+                  v-for="(item, idx) in lastExtractedInvoice.items"
+                  :key="idx"
+                  class="item-chip"
+                  :class="{ 'discount-chip': !isSubstantiveProductItem(item) }"
+                >
                   {{ item.item_name }} × {{ item.quantity }}（${{ item.amount }}）
                 </span>
               </div>
@@ -310,7 +315,7 @@
             </div>
 
             <p class="scanner-footer-note">
-              左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待右側 QR Code 補齊明細後再寫入，確保商品明細一致。
+              左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待右側 QR Code 補齊明細後再寫入，並自動區分實質商品與折扣列。
             </p>
           </div>
 
@@ -381,8 +386,16 @@
             <span>數量</span>
             <span>小計</span>
           </div>
-          <div class="detail-item-row" v-for="(item, idx) in selectedInvoiceDetail.items" :key="idx">
-            <span class="detail-item-name">{{ item.item_name }}</span>
+          <div
+            class="detail-item-row"
+            :class="{ 'is-discount-row': !isSubstantiveProductItem(item) }"
+            v-for="(item, idx) in selectedInvoiceDetail.items"
+            :key="idx"
+          >
+            <span class="detail-item-name">
+              {{ item.item_name }}
+              <small v-if="!isSubstantiveProductItem(item)" class="discount-tag">不計入商品碳排</small>
+            </span>
             <span class="detail-item-qty">x{{ item.quantity }}</span>
             <span class="detail-item-amt">{{ item.amount }}</span>
           </div>
@@ -396,7 +409,7 @@
         </p>
 
         <div class="detail-total-bar">
-          <span>合計金額</span>
+          <span>實付合計金額</span>
           <strong>TWD {{ Number(selectedInvoiceDetail.total_amount || 0).toLocaleString() }}</strong>
         </div>
 
@@ -491,10 +504,23 @@ const isNonProductCode = (name) => {
   if (!s || s.length > 100) return true
   if (/^\*+$/.test(s)) return true
   if (/^-?\d+(\.\d+)?$/.test(s)) return true
-  // 排除 Y6054、A123、001 這類英數代碼或機台/系統標記
   if (/^[A-Za-z]{1,4}\d{1,}$/.test(s)) return true
   if (/^[012]$/.test(s)) return true
   return false
+}
+
+// 判斷是否為「實質商品／餐點」（排除折讓、特價折抵、負數金額調整列）
+const isSubstantiveProductItem = (item) => {
+  const name = String(item?.item_name || '').trim()
+  const amount = Number(item?.amount || 0)
+  if (!name || amount <= 0) return false
+  if (/折扣|折讓|折抵|特價|調整|滿額贈|點數折/.test(name)) return false
+  return true
+}
+
+// 取得只用於「商品對商品」碳係數比對的實質商品清單
+const getBillableCarbonItems = (items = []) => {
+  return (Array.isArray(items) ? items : []).filter(isSubstantiveProductItem)
 }
 
 const normalizeDateOnly = (rawVal) => {
@@ -516,11 +542,12 @@ const formatRocPeriodBadge = (dateStr) => {
 }
 
 const buildSummaryTitle = (items = [], merchantName = '') => {
-  if (Array.isArray(items) && items.length > 1) {
-    return `${items[0].item_name} 等 ${items.length} 項`
+  const substantive = getBillableCarbonItems(items)
+  if (substantive.length > 1) {
+    return `${substantive[0].item_name} 等 ${substantive.length} 項`
   }
-  if (Array.isArray(items) && items.length === 1) {
-    return items[0].item_name
+  if (substantive.length === 1) {
+    return substantive[0].item_name
   }
   return `${merchantName || '一般消費'}（無逐項明細）`
 }
@@ -569,11 +596,16 @@ const normalizeItemRow = (item) => {
     ? Number(rawAmt.toFixed(2))
     : Number((quantity * unitPrice).toFixed(2))
 
-  return {
+  const row = {
     item_name: name,
     quantity,
     unit_price: unitPrice,
     amount
+  }
+
+  return {
+    ...row,
+    is_substantive: isSubstantiveProductItem(row)
   }
 }
 
@@ -609,7 +641,7 @@ const reconcileInvoiceAmounts = (items = [], qrTotalAmount = 0) => {
 
   const diff = Number((totalAmount - itemsSum).toFixed(2))
 
-  // 若已有品項，且發票總金額低於品項加總（常見於未列為獨立列的折讓／特價），補上一筆折讓列對齊
+  // 若已有品項，且發票實付總金額低於品項加總，補一筆折扣／折讓調整列對齊金額（標記為非實質商品，不參與商品對商品碳排比對）
   if (cleanItems.length > 0 && Number(qrTotalAmount) > 0 && diff < 0) {
     return {
       items: mergeUniqueItems(cleanItems, [
@@ -690,6 +722,11 @@ const syncInvoicesFromCloud = async () => {
 const saveInvoiceToCloud = async (record, sourceType = 'qr') => {
   if (!userPhone.value) return record
   try {
+    const normalizedItems = (Array.isArray(record.items) ? record.items : []).map((it) => ({
+      ...it,
+      is_substantive: isSubstantiveProductItem(it)
+    }))
+
     const res = await fetch(`${API_BASE_URL}/api/invoices`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -703,18 +740,21 @@ const saveInvoiceToCloud = async (record, sourceType = 'qr') => {
         store_name: record.store_name || null,
         category_name: record.category_name || '一般消費',
         total_amount: Number(record.total_amount || 0),
-        carbon_kg: 0,
-        hidden_carbon_cost: 0,
+        carbon_kg: Number(record.carbon_kg || 0),
+        hidden_carbon_cost: Number(record.hidden_carbon_cost || 0),
         calc_label: record.calc_label || null,
         source_type: sourceType,
-        items: Array.isArray(record.items) ? record.items : []
+        items: normalizedItems
       })
     })
     if (res.ok) {
       const result = await res.json()
-      const savedId = result?.data?.id
-      if (savedId) {
-        return { ...record, id: savedId }
+      const savedData = result?.data || {}
+      return {
+        ...record,
+        id: savedData.id || record.id,
+        carbon_kg: Number(savedData.carbon_kg ?? record.carbon_kg ?? 0),
+        hidden_carbon_cost: Number(savedData.hidden_carbon_cost ?? record.hidden_carbon_cost ?? 0)
       }
     }
   } catch (err) {
@@ -1406,7 +1446,7 @@ const deleteInvoice = async (targetId) => {
 }
 
 const totalItemsCount = computed(() => {
-  return invoiceList.value.reduce((acc, item) => acc + (Array.isArray(item.items) ? item.items.length : 0), 0)
+  return invoiceList.value.reduce((acc, item) => acc + getBillableCarbonItems(item.items).length, 0)
 })
 
 const totalAmountSum = computed(() => {
@@ -1447,7 +1487,7 @@ const filteredTotalAmount = computed(() => {
 
 const filteredTotalItemsCount = computed(() => {
   return filteredInvoices.value.reduce(
-    (acc, item) => acc + (Array.isArray(item.items) ? item.items.length : 0),
+    (acc, item) => acc + getBillableCarbonItems(item.items).length,
     0
   )
 })
@@ -1474,7 +1514,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描說明】\n左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待右側 QR Code 補齊明細後再寫入，確保商品明細一致。')
+  alert('【掃描說明】\n左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待右側 QR Code 補齊明細後再寫入，並僅針對實質商品執行「商品對商品」碳係數比對。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
@@ -1534,10 +1574,11 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
   const reconciled = reconcileInvoiceAmounts(rawItems, rawTotalAmount)
   const items = reconciled.items
   const totalAmount = reconciled.totalAmount
+  const substantiveCount = getBillableCarbonItems(items).length
 
   const calcLabel =
-    items.length > 0
-      ? `共 ${items.length} 項商品明細`
+    substantiveCount > 0
+      ? `共 ${substantiveCount} 項實質商品可供商品對商品比對`
       : '此發票 QR 內未包含逐項商品明細'
 
   const summaryTitle = buildSummaryTitle(items, merchantName)
@@ -1554,8 +1595,8 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
     summary_title: summaryTitle,
     total_amount: totalAmount,
     unmatched_diff: reconciled.unmatchedDiff,
-    carbon_kg: 0,
-    hidden_carbon_cost: 0,
+    carbon_kg: Number(backendData.carbon_kg || 0),
+    hidden_carbon_cost: Number(backendData.hidden_carbon_cost || 0),
     calc_label: calcLabel,
     source_type: 'electronic',
     items
@@ -2195,6 +2236,12 @@ const handleLogout = async () => {
   font-size: 0.78rem;
 }
 
+.item-chip.discount-chip {
+  background-color: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
 .fallback-preview-text {
   font-size: 0.82rem;
   color: #065f46;
@@ -2285,9 +2332,23 @@ const handleLogout = async () => {
   color: #1f2937;
 }
 
+.detail-item-row.is-discount-row {
+  color: #92400e;
+}
+
 .detail-item-name {
   word-break: break-word;
   line-height: 1.35;
+}
+
+.discount-tag {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.08rem 0.4rem;
+  font-size: 0.7rem;
+  background-color: #fef3c7;
+  color: #92400e;
+  border-radius: 4px;
 }
 
 .detail-item-qty,
