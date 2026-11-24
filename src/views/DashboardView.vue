@@ -482,6 +482,17 @@ const TRACK_CATEGORY_MAP = {
   FG: '餐飲消費'
 }
 
+const isNonProductCode = (name) => {
+  const s = String(name || '').trim()
+  if (!s || s.length > 100) return true
+  if (/^\*+$/.test(s)) return true
+  if (/^-?\d+(\.\d+)?$/.test(s)) return true
+  // 排除 Y6054、A123、001 這類英數代碼或機台/系統標記
+  if (/^[A-Za-z]{1,4}\d{1,}$/.test(s)) return true
+  if (/^[012]$/.test(s)) return true
+  return false
+}
+
 const normalizeDateOnly = (rawVal) => {
   const str = String(rawVal || '').trim()
   if (!str) return '2026/10/30'
@@ -552,9 +563,7 @@ const normalizeItemRow = (item) => {
 
 const isValidParsedItem = (item) => {
   const name = String(item?.item_name || '').trim()
-  if (!name || name.length > 100) return false
-  if (/^\*+$/.test(name)) return false
-  if (/^-?\d+(\.\d+)?$/.test(name)) return false
+  if (isNonProductCode(name)) return false
   return Number.isFinite(Number(item?.amount)) && Number(item?.amount) !== 0
 }
 
@@ -738,13 +747,7 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       .filter(Boolean)
   }
 
-  const isValidName = (name) => {
-    const s = String(name || '').trim()
-    if (!s || s.length > 100) return false
-    if (/^\*+$/.test(s)) return false
-    if (/^-?\d+(\.\d+)?$/.test(s)) return false
-    return true
-  }
+  const isValidName = (name) => !isNonProductCode(name)
 
   const parseItemTriplets = (tokens) => {
     const parsedItems = []
@@ -758,14 +761,16 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
 
       if (
         isValidName(name) &&
-        qtyRaw !== '' &&
-        priceRaw !== '' &&
+        /^-?\d+(\.\d+)?$/.test(qtyRaw) &&
+        /^-?\d+(\.\d+)?$/.test(priceRaw) &&
         Number.isFinite(qty) &&
         Number.isFinite(priceOrAmt) &&
+        qty > 0 &&
+        qty < 10000 &&
         priceOrAmt !== 0 &&
         Math.abs(priceOrAmt) < 1000000
       ) {
-        const cleanQty = qty !== 0 ? Math.abs(qty) : 1
+        const cleanQty = Number(qty.toFixed(2))
         const amount = Number((cleanQty * priceOrAmt).toFixed(2))
         parsedItems.push({
           item_name: name,
@@ -776,22 +781,6 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
         i += 3
       } else {
         i += 1
-      }
-    }
-
-    if (parsedItems.length === 0 && tokens.length >= 2) {
-      for (let j = 0; j + 1 < tokens.length; j++) {
-        const name = decodeTextSafely(tokens[j] || '').trim()
-        const numVal = Number(String(tokens[j + 1] || '').trim().replaceAll(',', ''))
-        if (isValidName(name) && Number.isFinite(numVal) && numVal !== 0 && Math.abs(numVal) < 1000000) {
-          parsedItems.push({
-            item_name: name,
-            quantity: 1,
-            unit_price: numVal,
-            amount: numVal
-          })
-          j += 1
-        }
       }
     }
 
