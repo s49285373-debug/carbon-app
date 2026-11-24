@@ -5,10 +5,10 @@
     <header class="header" v-if="currentTab === 'home'">
       <div class="title-area">
         <div class="logo-circle">
-          <span>🌱</span>
+          <span>🧾</span>
         </div>
         <span class="user-nickname-tag">{{ nickname }}</span>
-        <h1>帳本</h1>
+        <h1>發票帳本</h1>
       </div>
     </header>
 
@@ -19,34 +19,34 @@
       <template v-if="currentTab === 'home'">
         <section class="banner-card">
           <div class="banner-content">
-            <h2>🌿 開始記錄您的低碳綠色生活</h2>
-            <p>輕鬆掃描發票，追蹤個人碳足跡與隱形碳成本，讓每筆消費都對地球更友善！</p>
+            <h2>🧾 電子發票 QR 明細掃描</h2>
+            <p>快速掃描電子發票左右 QR Code，完整保留發票資訊與逐項商品明細。</p>
           </div>
           <div class="banner-stats">
-            <div class="mini-stat">
-              <span class="stat-num">{{ totalCarbonSum }}</span>
-              <span class="stat-label">當期總碳排 (kg)</span>
-            </div>
             <div class="mini-stat">
               <span class="stat-num">{{ invoiceList.length }}</span>
               <span class="stat-label">已解析發票 (筆)</span>
             </div>
             <div class="mini-stat">
-              <span class="stat-num">8.2%</span>
-              <span class="stat-label">較上期減少</span>
+              <span class="stat-num">{{ totalItemsCount }}</span>
+              <span class="stat-label">累計商品明細 (項)</span>
+            </div>
+            <div class="mini-stat">
+              <span class="stat-num">TWD {{ totalAmountSum.toLocaleString() }}</span>
+              <span class="stat-label">累計消費金額</span>
             </div>
           </div>
         </section>
 
         <section class="section-group">
-          <h3 class="section-title">✨ 試試這些碳排盤查與低碳任務</h3>
+          <h3 class="section-title">✨ 快速操作</h3>
           <div class="task-list">
             <div class="task-card">
               <div class="task-info">
-                <div class="task-icon green-bg">🧾</div>
+                <div class="task-icon green-bg">📷</div>
                 <div>
-                  <h4>發票載具碳足跡掃描</h4>
-                  <p>即時解析每筆消費的碳排量與隱形碳成本</p>
+                  <h4>掃描電子發票 QR Code</h4>
+                  <p>同時或接續掃描左右 QR Code，擷取完整商品明細</p>
                 </div>
               </div>
               <button class="action-plus-btn" @click="openScanTab">+</button>
@@ -56,22 +56,11 @@
               <div class="task-info">
                 <div class="task-icon blue-bg">📒</div>
                 <div>
-                  <h4>檢視本期發票存摺明細</h4>
-                  <p>瀏覽所有已擷取的發票品項、金額與來源紀錄</p>
+                  <h4>檢視發票存摺明細</h4>
+                  <p>查看已儲存的發票號碼、金額與逐項商品清單</p>
                 </div>
               </div>
               <button class="action-plus-btn" @click="currentTab = 'invoices'">&gt;</button>
-            </div>
-
-            <div class="task-card">
-              <div class="task-info">
-                <div class="task-icon orange-bg">🛒</div>
-                <div>
-                  <h4>消費類別碳排佔比</h4>
-                  <p>檢視食品、日用品與交通的碳排佔比分佈</p>
-                </div>
-              </div>
-              <button class="action-plus-btn" @click="currentTab = 'plan'">+</button>
             </div>
           </div>
         </section>
@@ -81,7 +70,7 @@
       <template v-if="currentTab === 'invoices'">
         <div class="passbook-wrapper">
           <div class="passbook-top-bar">
-            <button class="passbook-icon-btn" @click="toggleSearchInput" title="搜尋發票、地點或品項">🔍</button>
+            <button class="passbook-icon-btn" @click="toggleSearchInput" title="搜尋發票、店家或品項">🔍</button>
             <span class="passbook-bar-title">發票存摺</span>
             <button class="passbook-icon-btn" @click="openScanTab" title="新增掃描發票">＋</button>
           </div>
@@ -90,7 +79,7 @@
             <input
               type="text"
               v-model="searchKeyword"
-              placeholder="搜尋發票號碼、購買地點或品項..."
+              placeholder="搜尋發票號碼、店家或品項..."
               class="passbook-search-input"
             />
           </div>
@@ -103,15 +92,15 @@
             </div>
 
             <div class="period-summary-card">
-              <span class="summary-corner-badge">本期盤查中</span>
+              <span class="summary-corner-badge">明細清單</span>
               <div class="summary-subtitle">本期消費總金額</div>
               <div class="summary-main-row">
                 <span class="summary-amount">TWD {{ filteredTotalAmount.toLocaleString() }}</span>
                 <span class="summary-divider">|</span>
                 <span class="summary-count">{{ filteredInvoices.length }} 張</span>
               </div>
-              <div class="summary-carbon-pill">
-                🌱 本期累積碳排 <strong>{{ filteredTotalCarbon }}</strong> kg CO₂e ｜ 隱形碳成本 <strong>{{ filteredHiddenCost }}</strong> 元
+              <div class="summary-info-pill">
+                📦 本期共擷取 <strong>{{ filteredTotalItemsCount }}</strong> 筆商品明細
               </div>
             </div>
 
@@ -149,7 +138,7 @@
                 </div>
 
                 <div class="record-bottom-tags">
-                  <span class="tag-carbon">🌿 {{ inv.carbon_kg }} kg CO₂e</span>
+                  <span class="tag-items">📦 {{ (inv.items || []).length }} 項商品</span>
                   <div class="record-right-actions">
                     <span class="tag-source source-electronic">電子發票</span>
                     <button
@@ -165,7 +154,7 @@
             </div>
 
             <div v-else class="empty-invoice-state">
-              <p>{{ isSyncingInvoices ? '正在同步雲端發票...' : '尚未掃描任何發票' }}</p>
+              <p>{{ isSyncingInvoices ? '正在同步發票...' : '尚未掃描任何發票' }}</p>
               <button v-if="!isSyncingInvoices" class="primary-action-btn" @click="openScanTab">前往掃描發票</button>
             </div>
           </div>
@@ -238,7 +227,7 @@
                 </div>
 
                 <div class="camera-hint-box" v-else-if="isExtracting || scanError || !isCameraRunning">
-                  <p v-if="isExtracting" class="hint-text">⏳ 正在解析發票與碳足跡...</p>
+                  <p v-if="isExtracting" class="hint-text">⏳ 正在擷取發票與商品明細...</p>
                   <div v-else-if="scanError" class="error-hint-box">
                     <p class="error-text">⚠️ {{ cameraStatusMsg || '無法啟動相機，請確認 HTTPS 與相機權限' }}</p>
                     <button class="retry-btn" @click="startCameraScanner">重新開啟相機</button>
@@ -321,37 +310,14 @@
             </div>
 
             <p class="scanner-footer-note">
-              左右 QR Code 可同時入鏡合併建檔；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。
+              左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待右側 QR Code 補齊明細後再寫入，確保商品明細一致。
             </p>
           </div>
 
         </div>
       </template>
 
-      <!-- 4. 【計畫】分頁內容 -->
-      <template v-if="currentTab === 'plan'">
-        <section class="page-card">
-          <h3 class="section-title mb-3 text-dark">🌱 進行中的低碳改善計畫</h3>
-          <div class="ongoing-card mb-3">
-            <div class="ongoing-header">
-              <div class="task-info">
-                <div class="task-icon yellow-bg">⚠️</div>
-                <div>
-                  <h4>本週乳製品與瓶裝茶類攝取偏高</h4>
-                  <p class="ongoing-desc">系統建議：改以燕麥奶替換全脂牛奶，或自備環保杯購買手搖飲。</p>
-                </div>
-              </div>
-              <span class="badge-tag">進行中 65%</span>
-            </div>
-            <div class="ongoing-footer">
-              <span>預估可減少：<strong>1.4 公斤碳排</strong> (省下約 45 元)</span>
-              <button class="action-go-btn">查看詳情</button>
-            </div>
-          </div>
-        </section>
-      </template>
-
-      <!-- 5. 【設定會員】分頁內容 -->
+      <!-- 4. 【設定會員】分頁內容 -->
       <template v-if="currentTab === 'member'">
         <section class="page-card">
           <h3 class="section-title mb-3 text-dark">⚙️ 設定會員</h3>
@@ -422,7 +388,7 @@
           </div>
         </div>
         <p v-else class="fallback-detail-note">
-          此筆發票無逐項商品明細。
+          此筆發票 QR 內未包含逐項商品明細。
         </p>
 
         <div class="detail-total-bar">
@@ -450,10 +416,6 @@
       <div class="nav-item" :class="{ active: currentTab === 'scan' }" @click="openScanTab">
         <span class="nav-icon">📷</span>
         <span class="nav-label">掃 QR</span>
-      </div>
-      <div class="nav-item" :class="{ active: currentTab === 'plan' }" @click="currentTab = 'plan'">
-        <span class="nav-icon">📊</span>
-        <span class="nav-label">計畫</span>
       </div>
       <div class="nav-item" :class="{ active: currentTab === 'member' }" @click="currentTab = 'member'">
         <span class="nav-icon">👤</span>
@@ -520,8 +482,6 @@ const TRACK_CATEGORY_MAP = {
   FG: '餐飲消費'
 }
 
-const NON_CARBON_KEYWORDS = ['代收', '代繳', '手續費', '跨行', '物流費', '運費']
-
 const normalizeDateOnly = (rawVal) => {
   const str = String(rawVal || '').trim()
   if (!str) return '2026/10/30'
@@ -565,6 +525,54 @@ const decodeTextSafely = (str) => {
   return cleaned
 }
 
+const normalizeItemRow = (item) => {
+  const name = decodeTextSafely(item?.item_name ?? item?.name ?? '').trim()
+  const qtyNum = Number(String(item?.quantity ?? item?.qty ?? 1).replaceAll(',', ''))
+  const quantity = Number.isFinite(qtyNum) && qtyNum !== 0 ? Math.abs(qtyNum) : 1
+  const rawPrice = Number(String(item?.unit_price ?? item?.price ?? '').replaceAll(',', ''))
+  const rawAmt = Number(String(item?.amount ?? '').replaceAll(',', ''))
+
+  const unitPrice = Number.isFinite(rawPrice) && rawPrice !== 0
+    ? rawPrice
+    : Number.isFinite(rawAmt) && rawAmt !== 0
+    ? Number((rawAmt / quantity).toFixed(2))
+    : 0
+
+  const amount = Number.isFinite(rawAmt) && rawAmt !== 0
+    ? Number(rawAmt.toFixed(2))
+    : Number((quantity * unitPrice).toFixed(2))
+
+  return {
+    item_name: name,
+    quantity,
+    unit_price: unitPrice,
+    amount
+  }
+}
+
+const isValidParsedItem = (item) => {
+  const name = String(item?.item_name || '').trim()
+  if (!name || name.length > 100) return false
+  if (/^\*+$/.test(name)) return false
+  if (/^-?\d+(\.\d+)?$/.test(name)) return false
+  return Number.isFinite(Number(item?.amount)) && Number(item?.amount) !== 0
+}
+
+const mergeUniqueItems = (baseItems = [], extraItems = []) => {
+  const merged = []
+  const seen = new Set()
+  for (const raw of [...baseItems, ...extraItems]) {
+    const norm = normalizeItemRow(raw)
+    if (!isValidParsedItem(norm)) continue
+    const key = `${norm.item_name}__${norm.quantity}__${norm.unit_price}__${norm.amount}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      merged.push(norm)
+    }
+  }
+  return merged
+}
+
 const loadUserSession = () => {
   const savedNickname = localStorage.getItem('user_nickname')
   if (savedNickname) {
@@ -598,21 +606,19 @@ const syncInvoicesFromCloud = async () => {
     const result = await res.json()
     if (result?.status === 'success' && Array.isArray(result.data)) {
       invoiceList.value = result.data.map((inv) => {
-        const items = Array.isArray(inv.items) ? inv.items : []
+        const items = mergeUniqueItems(Array.isArray(inv.items) ? inv.items : [], [])
         const formattedDate = normalizeDateOnly(inv.purchase_date)
         return {
           ...inv,
           purchase_date: formattedDate,
           total_amount: Number(inv.total_amount || 0),
-          carbon_kg: Number(inv.carbon_kg || 0),
-          hidden_carbon_cost: Number(inv.hidden_carbon_cost || 0),
           summary_title: buildSummaryTitle(items, inv.merchant_name),
           items
         }
       })
     }
   } catch (err) {
-    console.warn('同步雲端發票失敗：', err)
+    console.warn('同步發票失敗：', err)
   } finally {
     isSyncingInvoices.value = false
   }
@@ -634,8 +640,8 @@ const saveInvoiceToCloud = async (record, sourceType = 'qr') => {
         store_name: record.store_name || null,
         category_name: record.category_name || '一般消費',
         total_amount: Number(record.total_amount || 0),
-        carbon_kg: Number(record.carbon_kg || 0),
-        hidden_carbon_cost: Number(record.hidden_carbon_cost || 0),
+        carbon_kg: 0,
+        hidden_carbon_cost: 0,
         calc_label: record.calc_label || null,
         source_type: sourceType,
         items: Array.isArray(record.items) ? record.items : []
@@ -649,7 +655,7 @@ const saveInvoiceToCloud = async (record, sourceType = 'qr') => {
       }
     }
   } catch (err) {
-    console.warn('寫入雲端發票失敗，保留本地紀錄：', err)
+    console.warn('寫入發票失敗，保留本地紀錄：', err)
   }
   return record
 }
@@ -734,10 +740,9 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
 
   const isValidName = (name) => {
     const s = String(name || '').trim()
-    if (!s || s.length > 80) return false
+    if (!s || s.length > 100) return false
     if (/^\*+$/.test(s)) return false
     if (/^-?\d+(\.\d+)?$/.test(s)) return false
-    if (/^[A-Za-z0-9+/=]{12,}$/.test(s) && !/[\u4e00-\u9fff]/.test(s)) return false
     return true
   }
 
@@ -760,11 +765,11 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
         priceOrAmt !== 0 &&
         Math.abs(priceOrAmt) < 1000000
       ) {
-        const cleanQty = qty !== 0 ? qty : 1
+        const cleanQty = qty !== 0 ? Math.abs(qty) : 1
         const amount = Number((cleanQty * priceOrAmt).toFixed(2))
         parsedItems.push({
           item_name: name,
-          quantity: Math.abs(cleanQty),
+          quantity: cleanQty,
           unit_price: priceOrAmt,
           amount
         })
@@ -774,7 +779,6 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       }
     }
 
-    // 彈性備援：抓出「品名 + 數字」配對（支援單價/小計直接跟在品名後的格式）
     if (parsedItems.length === 0 && tokens.length >= 2) {
       for (let j = 0; j + 1 < tokens.length; j++) {
         const name = decodeTextSafely(tokens[j] || '').trim()
@@ -791,7 +795,7 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       }
     }
 
-    return parsedItems
+    return mergeUniqueItems([], parsedItems)
   }
 
   if (text.startsWith('**')) {
@@ -872,19 +876,6 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
   }
 
   return result
-}
-
-const mergeUniqueItems = (baseItems = [], extraItems = []) => {
-  const merged = [...baseItems]
-  const seen = new Set(merged.map(it => `${it.item_name}_${it.amount}_${it.quantity}`))
-  for (const it of extraItems) {
-    const key = `${it.item_name}_${it.amount}_${it.quantity}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      merged.push(it)
-    }
-  }
-  return merged
 }
 
 const flushPendingInvoice = async () => {
@@ -1334,7 +1325,7 @@ const deleteInvoice = async (targetId) => {
       )}?phone=${encodeURIComponent(userPhone.value)}`
       await fetch(url, { method: 'DELETE' })
     } catch (err) {
-      console.warn('刪除雲端發票失敗：', err)
+      console.warn('刪除發票失敗：', err)
     }
   }
   invoiceList.value = invoiceList.value.filter(item => item.id !== targetId)
@@ -1343,9 +1334,12 @@ const deleteInvoice = async (targetId) => {
   }
 }
 
-const totalCarbonSum = computed(() => {
-  const sum = invoiceList.value.reduce((acc, item) => acc + Number(item.carbon_kg || 0), 0)
-  return sum.toFixed(1)
+const totalItemsCount = computed(() => {
+  return invoiceList.value.reduce((acc, item) => acc + (Array.isArray(item.items) ? item.items.length : 0), 0)
+})
+
+const totalAmountSum = computed(() => {
+  return invoiceList.value.reduce((acc, item) => acc + Number(item.total_amount || 0), 0)
 })
 
 const sourceFilterLabel = computed(() => {
@@ -1362,7 +1356,8 @@ const filteredInvoices = computed(() => {
       i =>
         (i.invoice_number || '').toLowerCase().includes(kw) ||
         (i.merchant_name || '').toLowerCase().includes(kw) ||
-        (i.summary_title || '').toLowerCase().includes(kw)
+        (i.summary_title || '').toLowerCase().includes(kw) ||
+        (Array.isArray(i.items) && i.items.some(it => (it.item_name || '').toLowerCase().includes(kw)))
     )
   }
 
@@ -1379,14 +1374,11 @@ const filteredTotalAmount = computed(() => {
   return filteredInvoices.value.reduce((acc, item) => acc + Number(item.total_amount || 0), 0)
 })
 
-const filteredTotalCarbon = computed(() => {
-  const sum = filteredInvoices.value.reduce((acc, item) => acc + Number(item.carbon_kg || 0), 0)
-  return sum.toFixed(2)
-})
-
-const filteredHiddenCost = computed(() => {
-  const sum = filteredInvoices.value.reduce((acc, item) => acc + Number(item.hidden_carbon_cost || 0), 0)
-  return Math.round(sum)
+const filteredTotalItemsCount = computed(() => {
+  return filteredInvoices.value.reduce(
+    (acc, item) => acc + (Array.isArray(item.items) ? item.items.length : 0),
+    0
+  )
 })
 
 const prevPeriod = () => {
@@ -1411,17 +1403,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描說明】\n1. 左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 折扣列不扣減碳排；純代收與手續費不列入實物碳排。')
-}
-
-const estimateFallbackItemCarbon = (itemName, amount) => {
-  const amt = Number(amount || 0)
-  if (amt <= 0) return 0
-  const name = String(itemName || '')
-  if (NON_CARBON_KEYWORDS.some((kw) => name.includes(kw))) {
-    return 0
-  }
-  return Number((amt * 0.0015).toFixed(4))
+  alert('【掃描說明】\n左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待右側 QR Code 補齊明細後再寫入，確保商品明細一致。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
@@ -1467,24 +1449,10 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
     inputMeta.invoiceDate || backendData.purchase_date || backendData.purchase_datetime || '2026/10/30'
   )
 
-  const rawBackendItems = Array.isArray(backendData.items) ? backendData.items : []
-  const validBackendItems = rawBackendItems
-    .map((it) => ({
-      ...it,
-      item_name: decodeTextSafely(it.item_name || '').trim()
-    }))
-    .filter((it) => {
-      const name = it.item_name
-      const amt = Number(it.amount)
-      const isMasked = !name || /^\*+$/.test(name) || /^-?\d+(\.\d+)?$/.test(name)
-      return !isMasked && Number.isFinite(amt) && amt !== 0
-    })
+  const qrItems = mergeUniqueItems(Array.isArray(inputMeta.items) ? inputMeta.items : [], [])
+  const backendItems = mergeUniqueItems(Array.isArray(backendData.items) ? backendData.items : [], [])
+  const items = qrItems.length > 0 ? qrItems : backendItems
 
-  const inputItems = (Array.isArray(inputMeta.items) ? inputMeta.items : []).map((it) => ({
-    ...it,
-    item_name: decodeTextSafely(it.item_name || '').trim()
-  }))
-  const items = inputItems.length > 0 ? [...inputItems] : mergeUniqueItems(validBackendItems, [])
   const rawItemsSum = Number(
     items.reduce((s, it) => s + Number(it.amount || 0), 0).toFixed(2)
   )
@@ -1498,48 +1466,12 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
       ? rawItemsSum
       : 0
 
-  if (items.length > 0 && totalAmount > 0 && Math.abs(totalAmount - rawItemsSum) >= 1) {
-    const diff = Number((totalAmount - rawItemsSum).toFixed(2))
-    items.push({
-      item_name: diff < 0 ? '促銷折扣／優惠折讓' : '其他加項／差額',
-      quantity: 1,
-      unit_price: diff,
-      amount: diff,
-      carbon_kg: 0
-    })
-  }
-
   const calcLabel =
     items.length > 0
-      ? '逐項商品明細推估'
-      : `無逐項明細，套用預設「${categoryName}」係數推估`
+      ? `共 ${items.length} 項商品明細`
+      : '此發票 QR 內未包含逐項商品明細'
 
   const summaryTitle = buildSummaryTitle(items, merchantName)
-
-  const computedItemsCarbon = Number(
-    Math.max(
-      items.reduce((s, it) => {
-        const itemCarbon =
-          it.carbon_kg !== undefined
-            ? Number(it.carbon_kg)
-            : estimateFallbackItemCarbon(it.item_name, it.amount)
-        return s + (Number.isFinite(itemCarbon) && itemCarbon > 0 ? itemCarbon : 0)
-      }, 0),
-      0
-    ).toFixed(2)
-  )
-
-  const estimatedCarbon =
-    items.length > 0
-      ? computedItemsCarbon
-      : backendData.carbon_kg !== undefined && Number(backendData.carbon_kg) >= 0
-      ? Number(Number(backendData.carbon_kg).toFixed(2))
-      : Number((Math.max(totalAmount, 0) * 0.0015).toFixed(2))
-
-  const hiddenCost =
-    backendData.hidden_carbon_cost !== undefined && items.length === 0
-      ? Number(Number(backendData.hidden_carbon_cost).toFixed(2))
-      : Number((estimatedCarbon * 3.2).toFixed(2))
 
   return {
     id: backendData.invoice_id || backendData.id || Date.now() + Math.random(),
@@ -1552,8 +1484,8 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
     random_code: inputMeta.randomCode || backendData.random_code || '',
     summary_title: summaryTitle,
     total_amount: totalAmount,
-    carbon_kg: estimatedCarbon,
-    hidden_carbon_cost: hiddenCost,
+    carbon_kg: 0,
+    hidden_carbon_cost: 0,
     calc_label: calcLabel,
     source_type: 'electronic',
     items
@@ -1585,7 +1517,7 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
       backendData = result?.data || {}
     }
   } catch (err) {
-    console.warn('後端未回應，改用前端 QR 解析與預設類別係數推估：', err)
+    console.warn('後端未回應，改用前端 QR 解析：', err)
   } finally {
     let record = resolveInvoiceRecord(inputMeta, backendData)
 
@@ -1744,7 +1676,7 @@ const handleLogout = async () => {
 }
 
 .stat-num {
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   font-weight: bold;
   color: #ffffff;
 }
@@ -1817,8 +1749,6 @@ const handleLogout = async () => {
 
 .green-bg { background-color: #d1fae5; }
 .blue-bg { background-color: #e0f2fe; }
-.orange-bg { background-color: #fef3c7; }
-.yellow-bg { background-color: #fef9c3; }
 
 .task-info h4 {
   font-size: 1rem;
@@ -1991,7 +1921,7 @@ const handleLogout = async () => {
   color: #374151;
 }
 
-.summary-carbon-pill {
+.summary-info-pill {
   background-color: #ecfdf5;
   color: #065f46;
   border: 1px solid #a7f3d0;
@@ -2091,7 +2021,7 @@ const handleLogout = async () => {
   align-items: center;
 }
 
-.tag-carbon {
+.tag-items {
   background-color: #f3f4f6;
   color: #374151;
   font-size: 0.78rem;
@@ -2312,71 +2242,6 @@ const handleLogout = async () => {
   font-size: 0.85rem;
   color: #6b7280;
   margin: 0;
-}
-
-.ongoing-card {
-  background-color: #ffffff;
-  color: #1f2937;
-  padding: 1.25rem 1.5rem;
-  border-radius: 18px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  box-sizing: border-box;
-}
-
-.ongoing-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.ongoing-desc {
-  font-size: 0.825rem;
-  color: #4b5563;
-  margin: 0;
-}
-
-.badge-tag {
-  background-color: #fef3c7;
-  color: #d97706;
-  font-size: 0.75rem;
-  font-weight: bold;
-  padding: 0.3rem 0.75rem;
-  border-radius: 9999px;
-  border: 1px solid #fde68a;
-  flex-shrink: 0;
-}
-
-.ongoing-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 0.75rem;
-  border-top: 1px solid #f3f4f6;
-  font-size: 0.85rem;
-  color: #4b5563;
-}
-
-.ongoing-footer strong {
-  color: #059669;
-}
-
-.action-go-btn {
-  background-color: #059669;
-  color: white;
-  border: none;
-  padding: 0.4rem 1rem;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 500;
-  transition: background 0.2s;
-}
-
-.action-go-btn:hover {
-  background-color: #047857;
 }
 
 .page-card {
