@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard-container" :class="{ 'scan-mode': currentTab === 'scan' }">
+  <div class="dashboard-container" :class="{ 'scan-mode': currentTab === 'scan' || currentTab === 'manual' }">
 
     <!-- 頂部導覽列：僅在「首頁 (home)」時顯示 -->
     <header class="header" v-if="currentTab === 'home'">
@@ -45,11 +45,22 @@
               <div class="task-info">
                 <div class="task-icon green-bg">📷</div>
                 <div>
-                  <h4>發票掃描與登錄</h4>
-                  <p>掃描電子發票證明聯 QR Code，或手動輸入傳統發票／消費明細</p>
+                  <h4>發票掃描</h4>
+                  <p>掃描電子發票證明聯 QR Code，自動擷取消費與品項明細</p>
                 </div>
               </div>
               <button class="action-plus-btn" @click="openScanTab">+</button>
+            </div>
+
+            <div class="task-card">
+              <div class="task-info">
+                <div class="task-icon purple-bg">✍️</div>
+                <div>
+                  <h4>手動輸入發票</h4>
+                  <p>登錄傳統發票或手動填寫發票日期、號碼、金額與商品明細</p>
+                </div>
+              </div>
+              <button class="action-plus-btn" @click="openManualTab">+</button>
             </div>
 
             <div class="task-card">
@@ -72,7 +83,7 @@
           <div class="passbook-top-bar">
             <button class="passbook-icon-btn" @click="toggleSearchInput" title="搜尋發票、地點或品項">🔍</button>
             <span class="passbook-bar-title">發票存摺</span>
-            <button class="passbook-icon-btn" @click="openScanTab" title="新增發票">＋</button>
+            <button class="passbook-icon-btn" @click="openManualTab" title="手動輸入發票">＋</button>
           </div>
 
           <div v-if="showSearchBar" class="passbook-search-bar">
@@ -105,9 +116,14 @@
             </div>
 
             <div class="passbook-filter-row">
-              <button class="filter-pill-btn" @click="cycleSourceFilter">
-                🧾 {{ sourceFilterLabel }}
-              </button>
+              <div class="filter-left-group">
+                <button class="filter-pill-btn" @click="cycleSourceFilter">
+                  🧾 {{ sourceFilterLabel }}
+                </button>
+                <button class="manual-entry-pill-btn" @click="openManualTab">
+                  ✍️ 手動輸入
+                </button>
+              </div>
               <button class="sort-text-btn" @click="toggleSortOrder">
                 ⇅ {{ sortDesc ? '日期新到舊' : '日期舊到新' }}
               </button>
@@ -160,335 +176,330 @@
 
             <div v-else class="empty-invoice-state">
               <p>{{ isSyncingInvoices ? '正在同步雲端發票...' : '尚未掃描或登錄任何發票' }}</p>
-              <button v-if="!isSyncingInvoices" class="primary-action-btn" @click="openScanTab">前往掃描或登錄發票</button>
+              <div v-if="!isSyncingInvoices" class="empty-action-group">
+                <button class="primary-action-btn" @click="openScanTab">前往掃描發票</button>
+                <button class="secondary-manual-btn" @click="openManualTab">手動輸入發票</button>
+              </div>
             </div>
           </div>
         </div>
       </template>
 
-      <!-- 3. 【掃 QR / 傳統發票編輯】分頁內容 -->
+      <!-- 3. 【掃 QR（僅電子發票）】分頁內容 -->
       <template v-if="currentTab === 'scan'">
-        <div class="scanner-wrapper" :class="{ 'is-trad-editor': invoiceType === 'traditional' }">
-
-          <!-- 頂部導覽列：電子發票為咖啡色「掃描發票」；傳統發票為紫色「編輯」 -->
-          <div class="scanner-top-bar" :class="{ 'official-editor-header': invoiceType === 'traditional' }">
-            <button
-              class="scanner-text-btn"
-              @click="invoiceType === 'traditional' ? (invoiceType = 'electronic') : (currentTab = 'home')"
-            >
+        <div class="scanner-wrapper">
+          <div class="scanner-top-bar">
+            <button class="scanner-text-btn" @click="currentTab = 'home'">
               &lt; 返回
             </button>
-            <span class="scanner-bar-title">{{ invoiceType === 'traditional' ? '編輯' : '掃描發票' }}</span>
+            <span class="scanner-bar-title">掃描發票</span>
             <span class="scanner-topbar-spacer"></span>
           </div>
 
-          <!-- 電子發票模式 -->
-          <template v-if="invoiceType === 'electronic'">
-            <div class="camera-viewport" ref="viewportRef">
-              <video
-                ref="videoRef"
-                class="native-camera-video"
-                autoplay
-                playsinline
-                webkit-playsinline
-                muted
-              ></video>
-              <canvas ref="decodeCanvasRef" class="hidden-decode-canvas"></canvas>
+          <div class="camera-viewport" ref="viewportRef">
+            <video
+              ref="videoRef"
+              class="native-camera-video"
+              autoplay
+              playsinline
+              webkit-playsinline
+              muted
+            ></video>
+            <canvas ref="decodeCanvasRef" class="hidden-decode-canvas"></canvas>
 
-              <div class="qr-bounding-layer">
-                <div
-                  v-for="(box, idx) in detectedBoxes"
+            <div class="qr-bounding-layer">
+              <div
+                v-for="(box, idx) in detectedBoxes"
+                :key="idx"
+                class="qr-live-green-box"
+                :style="box.style"
+              ></div>
+            </div>
+
+            <div class="camera-overlay-content">
+              <div class="camera-controls-top">
+                <button
+                  class="icon-circle-btn"
+                  :class="{ active: flashOn }"
+                  @click="toggleTorch"
+                  title="切換閃光燈"
+                >
+                  {{ flashOn ? '⚡' : '🔦' }}
+                </button>
+                <button
+                  class="icon-circle-btn"
+                  :class="{ active: soundOn }"
+                  @click="soundOn = !soundOn"
+                  title="掃描音效"
+                >
+                  {{ soundOn ? '🔊' : '🔇' }}
+                </button>
+              </div>
+
+              <div
+                class="focus-frame"
+                :class="{ 'is-detected': detectedBoxes.length > 0 || qrPulseDetected }"
+              >
+                <span class="corner top-left"></span>
+                <span class="corner top-right"></span>
+                <span class="corner bottom-left"></span>
+                <span class="corner bottom-right"></span>
+
+                <div v-if="duplicateAlertMsg" class="duplicate-pill-toast">
+                  <span class="dup-icon">!</span>
+                  <span>{{ duplicateAlertMsg }}</span>
+                </div>
+
+                <div v-else-if="successToastMsg" class="success-pill-toast">
+                  <span>✅ {{ successToastMsg }}</span>
+                </div>
+
+                <div class="camera-hint-box" v-else-if="isExtracting || scanError || !isCameraRunning">
+                  <p v-if="isExtracting" class="hint-text">⏳ 正在解析發票資料...</p>
+                  <div v-else-if="scanError" class="error-hint-box">
+                    <p class="error-text">⚠️ {{ cameraStatusMsg || '無法啟動相機，請確認 HTTPS 與相機權限' }}</p>
+                    <button class="retry-btn" @click="startCameraScanner">重新開啟相機</button>
+                  </div>
+                  <p v-else class="hint-text">正在啟動相機，請稍候...</p>
+                </div>
+              </div>
+
+              <div class="camera-controls-bottom">
+                <button class="help-circle-btn" @click="alertHelp" title="掃描說明">?</button>
+
+                <div class="continuous-toggle">
+                  <span>連續掃描</span>
+                  <label class="switch">
+                    <input type="checkbox" v-model="continuousScan">
+                    <span class="slider round"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="scanner-bottom-sheet">
+            <div class="single-mode-badge">
+              電子發票證明聯
+            </div>
+
+            <div v-if="lastExtractedInvoice" class="latest-extracted-box">
+              <div class="latest-extracted-header">
+                <span>
+                  ✅ <strong>{{ lastExtractedInvoice.invoice_number }}</strong>｜{{ lastExtractedInvoice.merchant_name }}（{{ lastExtractedInvoice.purchase_date }}）
+                </span>
+                <div class="latest-extracted-actions">
+                  <button class="view-passbook-link" @click="currentTab = 'invoices'">前往發票存摺 &gt;</button>
+                  <button class="view-passbook-link" @click="lastExtractedInvoice = null">清除</button>
+                </div>
+              </div>
+              <div v-if="lastExtractedInvoice.items && lastExtractedInvoice.items.length > 0" class="latest-extracted-items">
+                <span
+                  v-for="(item, idx) in lastExtractedInvoice.items"
                   :key="idx"
-                  class="qr-live-green-box"
-                  :style="box.style"
-                ></div>
-              </div>
-
-              <div class="camera-overlay-content">
-                <div class="camera-controls-top">
-                  <button
-                    class="icon-circle-btn"
-                    :class="{ active: flashOn }"
-                    @click="toggleTorch"
-                    title="切換閃光燈"
-                  >
-                    {{ flashOn ? '⚡' : '🔦' }}
-                  </button>
-                  <button
-                    class="icon-circle-btn"
-                    :class="{ active: soundOn }"
-                    @click="soundOn = !soundOn"
-                    title="掃描音效"
-                  >
-                    {{ soundOn ? '🔊' : '🔇' }}
-                  </button>
-                </div>
-
-                <div
-                  class="focus-frame"
-                  :class="{ 'is-detected': detectedBoxes.length > 0 || qrPulseDetected }"
+                  class="item-chip"
+                  :class="{ 'discount-chip': !isSubstantiveProductItem(item) }"
                 >
-                  <span class="corner top-left"></span>
-                  <span class="corner top-right"></span>
-                  <span class="corner bottom-left"></span>
-                  <span class="corner bottom-right"></span>
+                  {{ item.item_name }} × {{ item.quantity }}（${{ item.amount }}）
+                </span>
+              </div>
+              <div v-else class="fallback-preview-text">
+                📌 {{ lastExtractedInvoice.calc_label || `實付金額：TWD ${Number(lastExtractedInvoice.total_amount || 0).toLocaleString()}` }}
+              </div>
+            </div>
 
-                  <div v-if="duplicateAlertMsg" class="duplicate-pill-toast">
-                    <span class="dup-icon">!</span>
-                    <span>{{ duplicateAlertMsg }}</span>
-                  </div>
-
-                  <div v-else-if="successToastMsg" class="success-pill-toast">
-                    <span>✅ {{ successToastMsg }}</span>
-                  </div>
-
-                  <div class="camera-hint-box" v-else-if="isExtracting || scanError || !isCameraRunning">
-                    <p v-if="isExtracting" class="hint-text">⏳ 正在解析發票資料...</p>
-                    <div v-else-if="scanError" class="error-hint-box">
-                      <p class="error-text">⚠️ {{ cameraStatusMsg || '無法啟動相機，請確認 HTTPS 與相機權限' }}</p>
-                      <button class="retry-btn" @click="startCameraScanner">重新開啟相機</button>
-                    </div>
-                    <p v-else class="hint-text">正在啟動相機，請稍候...</p>
-                  </div>
-                </div>
-
-                <div class="camera-controls-bottom">
-                  <button class="help-circle-btn" @click="alertHelp" title="掃描說明">?</button>
-
-                  <div class="continuous-toggle">
-                    <span>連續掃描</span>
-                    <label class="switch">
-                      <input type="checkbox" v-model="continuousScan">
-                      <span class="slider round"></span>
-                    </label>
+            <div class="invoice-guide-illustration">
+              <div class="guide-corners">
+                <div class="mock-receipt">
+                  <div class="receipt-header">電子發票證明聯</div>
+                  <div class="receipt-period">115年09-10月</div>
+                  <div class="receipt-num">FG-49916892</div>
+                  <div class="receipt-barcode">|||| ||| || |||| |||</div>
+                  <div class="receipt-qrs">
+                    <div class="qr-box">QR左</div>
+                    <div class="qr-box">QR右</div>
                   </div>
                 </div>
               </div>
             </div>
-
-            <div class="scanner-bottom-sheet">
-              <div class="invoice-type-tabs">
-                <button
-                  class="type-tab"
-                  :class="{ active: invoiceType === 'electronic' }"
-                  @click="invoiceType = 'electronic'"
-                >
-                  電子發票證明聯
-                </button>
-                <button
-                  class="type-tab"
-                  :class="{ active: invoiceType === 'traditional' }"
-                  @click="invoiceType = 'traditional'"
-                >
-                  傳統發票
-                </button>
-              </div>
-
-              <div v-if="lastExtractedInvoice" class="latest-extracted-box">
-                <div class="latest-extracted-header">
-                  <span>
-                    ✅ <strong>{{ lastExtractedInvoice.invoice_number }}</strong>｜{{ lastExtractedInvoice.merchant_name }}（{{ lastExtractedInvoice.purchase_date }}）
-                  </span>
-                  <div class="latest-extracted-actions">
-                    <button class="view-passbook-link" @click="currentTab = 'invoices'">前往發票存摺 &gt;</button>
-                    <button class="view-passbook-link" @click="lastExtractedInvoice = null">清除</button>
-                  </div>
-                </div>
-                <div v-if="lastExtractedInvoice.items && lastExtractedInvoice.items.length > 0" class="latest-extracted-items">
-                  <span
-                    v-for="(item, idx) in lastExtractedInvoice.items"
-                    :key="idx"
-                    class="item-chip"
-                    :class="{ 'discount-chip': !isSubstantiveProductItem(item) }"
-                  >
-                    {{ item.item_name }} × {{ item.quantity }}（${{ item.amount }}）
-                  </span>
-                </div>
-                <div v-else class="fallback-preview-text">
-                  📌 {{ lastExtractedInvoice.calc_label || `實付金額：TWD ${Number(lastExtractedInvoice.total_amount || 0).toLocaleString()}` }}
-                </div>
-              </div>
-
-              <div class="invoice-guide-illustration">
-                <div class="guide-corners">
-                  <div class="mock-receipt">
-                    <div class="receipt-header">電子發票證明聯</div>
-                    <div class="receipt-period">115年09-10月</div>
-                    <div class="receipt-num">FG-49916892</div>
-                    <div class="receipt-barcode">|||| ||| || |||| |||</div>
-                    <div class="receipt-qrs">
-                      <div class="qr-box">QR左</div>
-                      <div class="qr-box">QR右</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <p class="scanner-footer-note">
-                左右 QR Code 可同時入鏡合併建檔；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。
-              </p>
-            </div>
-          </template>
-
-          <!-- 傳統發票模式：完全依照「編輯」畫面欄位配置 -->
-          <template v-else>
-            <div class="official-editor-body">
-              <div class="official-field">
-                <div class="official-label-row">
-                  <label class="official-label">
-                    <span>發票類型 <span class="official-req">*</span></span>
-                  </label>
-                </div>
-                <div class="official-select-wrap">
-                  <select v-model="tradEditorForm.invoice_type_label" class="official-control official-select">
-                    <option value="傳統發票">傳統發票</option>
-                  </select>
-                  <span class="official-select-arrow">⌄</span>
-                </div>
-              </div>
-
-              <div class="official-field">
-                <div class="official-label-row">
-                  <label class="official-label">
-                    <span>發票日期 <span class="official-req">*</span></span>
-                  </label>
-                </div>
-                <input
-                  type="text"
-                  v-model="tradEditorForm.purchase_date"
-                  placeholder="請輸入發票日期"
-                  class="official-control official-manual-date"
-                />
-              </div>
-
-              <div class="official-field">
-                <div class="official-label-row">
-                  <label class="official-label">
-                    <span>發票號碼 <span class="official-req">*</span></span>
-                  </label>
-                </div>
-                <div class="official-code-split">
-                  <input
-                    type="text"
-                    v-model="tradEditorForm.track_alpha"
-                    maxlength="2"
-                    placeholder="EF"
-                    class="official-control official-alpha"
-                  />
-                  <input
-                    type="text"
-                    v-model="tradEditorForm.track_digits"
-                    maxlength="8"
-                    inputmode="numeric"
-                    placeholder="54403818"
-                    class="official-control official-digits"
-                  />
-                </div>
-              </div>
-
-              <div class="official-field">
-                <div class="official-label-row">
-                  <label class="official-label">
-                    <span>發票金額 <span class="official-req">*</span></span>
-                  </label>
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  v-model.number="tradEditorForm.total_amount"
-                  placeholder="0"
-                  class="official-control"
-                />
-              </div>
-
-              <div class="official-field">
-                <div class="official-label-row">
-                  <label class="official-label">
-                    <span>商家名稱 <span class="official-count">{{ (tradEditorForm.merchant_name || '').length }}/20</span></span>
-                  </label>
-                </div>
-                <input
-                  type="text"
-                  maxlength="20"
-                  v-model="tradEditorForm.merchant_name"
-                  placeholder="請輸入商家名稱"
-                  class="official-control"
-                />
-              </div>
-
-              <div class="official-items-block">
-                <div class="official-items-title">商品明細</div>
-
-                <div
-                  v-for="(item, idx) in tradEditorForm.items"
-                  :key="idx"
-                  class="official-item-box"
-                >
-                  <div class="official-item-top">
-                    <span>品項 {{ idx + 1 }}</span>
-                    <button type="button" class="official-item-del" @click="removeTradItemRow(idx)">移除</button>
-                  </div>
-                  <input
-                    type="text"
-                    v-model="item.item_name"
-                    placeholder="請輸入商品名稱"
-                    class="official-control official-item-name"
-                  />
-                  <div class="official-item-grid">
-                    <input
-                      type="number"
-                      min="1"
-                      v-model.number="item.quantity"
-                      placeholder="數量"
-                      class="official-control"
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      v-model.number="item.amount"
-                      placeholder="金額"
-                      class="official-control"
-                    />
-                  </div>
-                </div>
-
-                <button type="button" class="official-add-item-btn" @click="addTradItemRow">
-                  <span class="official-plus-circle">+</span>
-                  <span>新增商品明細</span>
-                </button>
-
-                <button
-                  type="button"
-                  class="official-confirm-passbook-btn"
-                  @click="submitTraditionalInvoice"
-                >
-                  確認儲存至發票存摺
-                </button>
-
-                <button
-                  type="button"
-                  class="official-modal-delete-btn"
-                  @click="resetTradEditorForm"
-                >
-                  刪除
-                </button>
-
-                <div class="official-notice-card">
-                  <div class="official-notice-title">
-                    <span class="official-notice-icon">!</span>
-                    <span>注意事項</span>
-                  </div>
-                  <p class="official-notice-text">
-                    自行輸入之發票僅提供對獎服務，非屬中獎之領獎憑據，請務必保留紙本發票；發票如有中獎，請於領獎期限內攜帶身分證
-                  </p>
-                </div>
-              </div>
-            </div>
-          </template>
-
+            <p class="scanner-footer-note">
+              左右 QR Code 可同時入鏡合併建檔；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。
+            </p>
+          </div>
         </div>
       </template>
 
-      <!-- 4. 【計畫】分頁內容 -->
+      <!-- 4. 【手動輸入（編輯）】獨立畫面：完全比照指定截圖欄位 -->
+      <template v-if="currentTab === 'manual'">
+        <div class="scanner-wrapper is-trad-editor">
+          <div class="scanner-top-bar official-editor-header">
+            <button
+              class="scanner-text-btn"
+              @click="currentTab = previousTabBeforeManual"
+            >
+              &lt; 返回
+            </button>
+            <span class="scanner-bar-title">編輯</span>
+            <span class="scanner-topbar-spacer"></span>
+          </div>
+
+          <div class="official-editor-body">
+            <div class="official-field">
+              <div class="official-label-row">
+                <label class="official-label">
+                  <span>發票類型 <span class="official-req">*</span></span>
+                </label>
+              </div>
+              <div class="official-select-wrap">
+                <select v-model="tradEditorForm.invoice_type_label" class="official-control official-select">
+                  <option value="傳統發票">傳統發票</option>
+                  <option value="電子發票">電子發票</option>
+                </select>
+                <span class="official-select-arrow">⌄</span>
+              </div>
+            </div>
+
+            <div class="official-field">
+              <div class="official-label-row">
+                <label class="official-label">
+                  <span>發票日期 <span class="official-req">*</span></span>
+                </label>
+              </div>
+              <input
+                type="text"
+                v-model="tradEditorForm.purchase_date"
+                placeholder="請輸入發票日期"
+                class="official-control official-manual-date"
+              />
+            </div>
+
+            <div class="official-field">
+              <div class="official-label-row">
+                <label class="official-label">
+                  <span>發票號碼 <span class="official-req">*</span></span>
+                </label>
+              </div>
+              <div class="official-code-split">
+                <input
+                  type="text"
+                  v-model="tradEditorForm.track_alpha"
+                  maxlength="2"
+                  placeholder="EF"
+                  class="official-control official-alpha"
+                />
+                <input
+                  type="text"
+                  v-model="tradEditorForm.track_digits"
+                  maxlength="8"
+                  inputmode="numeric"
+                  placeholder="54403818"
+                  class="official-control official-digits"
+                />
+              </div>
+            </div>
+
+            <div class="official-field">
+              <div class="official-label-row">
+                <label class="official-label">
+                  <span>發票金額 <span class="official-req">*</span></span>
+                </label>
+              </div>
+              <input
+                type="number"
+                min="0"
+                v-model.number="tradEditorForm.total_amount"
+                placeholder="0"
+                class="official-control"
+              />
+            </div>
+
+            <div class="official-field">
+              <div class="official-label-row">
+                <label class="official-label">
+                  <span>商家名稱 <span class="official-count">{{ (tradEditorForm.merchant_name || '').length }}/20</span></span>
+                </label>
+              </div>
+              <input
+                type="text"
+                maxlength="20"
+                v-model="tradEditorForm.merchant_name"
+                placeholder="請輸入商家名稱"
+                class="official-control"
+              />
+            </div>
+
+            <div class="official-items-block">
+              <div class="official-items-title">商品明細</div>
+
+              <div
+                v-for="(item, idx) in tradEditorForm.items"
+                :key="idx"
+                class="official-item-box"
+              >
+                <div class="official-item-top">
+                  <span>品項 {{ idx + 1 }}</span>
+                  <button type="button" class="official-item-del" @click="removeTradItemRow(idx)">移除</button>
+                </div>
+                <input
+                  type="text"
+                  v-model="item.item_name"
+                  placeholder="請輸入商品名稱"
+                  class="official-control official-item-name"
+                />
+                <div class="official-item-grid">
+                  <input
+                    type="number"
+                    min="1"
+                    v-model.number="item.quantity"
+                    placeholder="數量"
+                    class="official-control"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    v-model.number="item.amount"
+                    placeholder="金額"
+                    class="official-control"
+                  />
+                </div>
+              </div>
+
+              <button type="button" class="official-add-item-btn" @click="addTradItemRow">
+                <span class="official-plus-circle">+</span>
+                <span>新增商品明細</span>
+              </button>
+
+              <button
+                type="button"
+                class="official-confirm-passbook-btn"
+                @click="submitTraditionalInvoice"
+              >
+                確認儲存至發票存摺
+              </button>
+
+              <button
+                type="button"
+                class="official-modal-delete-btn"
+                @click="resetTradEditorForm"
+              >
+                刪除
+              </button>
+
+              <div class="official-notice-card">
+                <div class="official-notice-title">
+                  <span class="official-notice-icon">!</span>
+                  <span>注意事項</span>
+                </div>
+                <p class="official-notice-text">
+                  自行輸入之發票僅提供對獎服務，非屬中獎之領獎憑據，請務必保留紙本發票；發票如有中獎，請於領獎期限內攜帶身分證
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- 5. 【計畫】分頁內容 -->
       <template v-if="currentTab === 'plan'">
         <section class="page-card">
           <h3 class="section-title mb-3 text-dark">📋 消費紀錄摘要</h3>
@@ -511,7 +522,7 @@
         </section>
       </template>
 
-      <!-- 5. 【設定會員】分頁內容 -->
+      <!-- 6. 【設定會員】分頁內容 -->
       <template v-if="currentTab === 'member'">
         <section class="page-card">
           <h3 class="section-title mb-3 text-dark">⚙️ 設定會員</h3>
@@ -614,8 +625,8 @@
       </div>
     </div>
 
-    <!-- 底部固定導覽列：進入掃描發票 (scan) 分頁時隱藏 -->
-    <nav class="bottom-nav" v-if="currentTab !== 'scan'">
+    <!-- 底部固定導覽列：進入掃描發票 (scan) 或手動輸入 (manual) 時隱藏 -->
+    <nav class="bottom-nav" v-if="currentTab !== 'scan' && currentTab !== 'manual'">
       <div class="nav-item" :class="{ active: currentTab === 'home' }" @click="currentTab = 'home'">
         <span class="nav-icon">🏠</span>
         <span class="nav-label">首頁</span>
@@ -650,6 +661,7 @@ const router = useRouter()
 const nickname = ref('使用者')
 const userPhone = ref('')
 const currentTab = ref('home')
+const previousTabBeforeManual = ref('home')
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
 
@@ -660,7 +672,6 @@ const mediaStream = ref(null)
 const flashOn = ref(false)
 const soundOn = ref(true)
 const continuousScan = ref(true)
-const invoiceType = ref('electronic')
 const scanError = ref(false)
 const isExtracting = ref(false)
 const isSyncingInvoices = ref(false)
@@ -1066,6 +1077,7 @@ const submitTraditionalInvoice = async () => {
   const digits = String(tradEditorForm.value.track_digits || '').replace(/\D/g, '')
   const manualDate = String(tradEditorForm.value.purchase_date || '').trim()
   const manualTotal = Math.max(0, Number(tradEditorForm.value.total_amount || 0))
+  const isElectronicManual = tradEditorForm.value.invoice_type_label === '電子發票'
 
   if (!manualDate) {
     alert('請輸入發票日期')
@@ -1100,9 +1112,11 @@ const submitTraditionalInvoice = async () => {
   }
 
   const invoiceNumber = `${alpha}${digits}`
-  const storeName = String(tradEditorForm.value.merchant_name || '').trim() || '傳統發票'
+  const defaultTypeLabel = isElectronicManual ? '電子發票' : '傳統發票'
+  const storeName = String(tradEditorForm.value.merchant_name || '').trim() || defaultTypeLabel
   const categoryName = TRACK_CATEGORY_MAP[alpha] || '一般消費'
   const formattedDate = normalizeDateOnly(manualDate)
+  const sourceType = isElectronicManual ? 'electronic' : 'traditional'
 
   const reconciled = reconcileInvoiceAmounts(validItems, finalTotalAmount)
   const substantiveCount = getSubstantiveItems(reconciled.items).length
@@ -1119,19 +1133,18 @@ const submitTraditionalInvoice = async () => {
     summary_title:
       substantiveCount > 0
         ? buildSummaryTitle(reconciled.items, storeName)
-        : `${storeName}（傳統發票）`,
+        : `${storeName}（${defaultTypeLabel}）`,
     total_amount: reconciled.totalAmount,
     unmatched_diff: reconciled.unmatchedDiff,
-    calc_label: substantiveCount > 0 ? '逐項商品明細' : '傳統發票金額登錄',
-    source_type: 'traditional',
+    calc_label: substantiveCount > 0 ? '逐項商品明細' : `${defaultTypeLabel}金額登錄`,
+    source_type: sourceType,
     items: reconciled.items
   }
 
-  const saved = await saveInvoiceToCloud(record, 'traditional')
+  const saved = await saveInvoiceToCloud(record, sourceType)
   invoiceList.value.unshift(saved)
   lastExtractedInvoice.value = saved
   resetTradEditorForm()
-  invoiceType.value = 'electronic'
   currentTab.value = 'invoices'
 }
 
@@ -1332,7 +1345,7 @@ const flushPendingInvoice = async () => {
 
   await processInvoiceLookup(
     {
-      invoiceType: invoiceType.value,
+      invoiceType: 'electronic',
       invoiceNumber: leftSnapshot.parsed.invoiceNumber,
       invoiceDate: leftSnapshot.parsed.isoDate,
       randomCode: leftSnapshot.parsed.randomCode,
@@ -1419,7 +1432,7 @@ const handleFrameQrTexts = async (rawTexts = []) => {
 
     await processInvoiceLookup(
       {
-        invoiceType: invoiceType.value,
+        invoiceType: 'electronic',
         invoiceNumber: mainLeft.parsed.invoiceNumber,
         invoiceDate: mainLeft.parsed.isoDate,
         randomCode: mainLeft.parsed.randomCode,
@@ -1551,7 +1564,6 @@ const decodeCanvasFrame = (srcVideo, tempCanvas, cropRect) => {
 
 const startNativeQrLoop = () => {
   stopScanLoop()
-  if (invoiceType.value !== 'electronic') return
 
   const hasBarcodeDetector = typeof window !== 'undefined' && 'BarcodeDetector' in window
   let detector = null
@@ -1567,7 +1579,6 @@ const startNativeQrLoop = () => {
     if (
       !isCameraRunning.value ||
       currentTab.value !== 'scan' ||
-      invoiceType.value !== 'electronic' ||
       isExtracting.value
     ) return
 
@@ -1664,7 +1675,7 @@ const stopCameraScanner = async () => {
 }
 
 const startCameraScanner = async () => {
-  if (currentTab.value !== 'scan' || invoiceType.value !== 'electronic') return
+  if (currentTab.value !== 'scan') return
   if (isCameraRunning.value) return
 
   scanError.value = false
@@ -1725,20 +1736,9 @@ const toggleTorch = async () => {
   }
 }
 
-watch(invoiceType, async (newType) => {
-  if (currentTab.value !== 'scan') return
-  if (newType === 'traditional') {
-    await stopCameraScanner()
-  } else if (newType === 'electronic') {
-    await startCameraScanner()
-  }
-})
-
 watch(currentTab, async (newTab, oldTab) => {
   if (newTab === 'scan') {
-    if (invoiceType.value === 'electronic') {
-      await startCameraScanner()
-    }
+    await startCameraScanner()
   } else {
     if (oldTab === 'scan') {
       await stopCameraScanner()
@@ -1752,7 +1752,7 @@ watch(currentTab, async (newTab, oldTab) => {
 onMounted(async () => {
   loadUserSession()
   await syncInvoicesFromCloud()
-  if (currentTab.value === 'scan' && invoiceType.value === 'electronic') {
+  if (currentTab.value === 'scan') {
     startCameraScanner()
   }
 })
@@ -1767,12 +1767,17 @@ const openScanTab = async () => {
   duplicateAlertMsg.value = ''
   successToastMsg.value = ''
   if (currentTab.value === 'scan') {
-    if (invoiceType.value === 'electronic') {
-      await startCameraScanner()
-    }
+    await startCameraScanner()
   } else {
     currentTab.value = 'scan'
   }
+}
+
+const openManualTab = () => {
+  if (currentTab.value !== 'manual') {
+    previousTabBeforeManual.value = currentTab.value
+  }
+  currentTab.value = 'manual'
 }
 
 const deleteInvoice = async (targetId) => {
@@ -1874,7 +1879,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 傳統發票：點選「傳統發票」切換至編輯表單，填寫發票日期、號碼、金額與商品明細後儲存。')
+  alert('【掃描說明】\n電子發票證明聯：左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n若要手動輸入發票，請由首頁「手動輸入發票」或發票存摺內的「手動輸入」進入。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
@@ -1975,7 +1980,7 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         phone: phoneToUse,
-        invoice_type: inputMeta.invoiceType || invoiceType.value,
+        invoice_type: 'electronic',
         source_type: sourceType,
         qr_raw_data: rawPayload
       })
@@ -2216,6 +2221,7 @@ const handleLogout = async () => {
 }
 
 .green-bg { background-color: #d1fae5; }
+.purple-bg { background-color: #ede9fe; }
 .blue-bg { background-color: #e0f2fe; }
 .yellow-bg { background-color: #fef9c3; }
 
@@ -2245,6 +2251,7 @@ const handleLogout = async () => {
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .action-plus-btn:hover {
@@ -2404,11 +2411,31 @@ const handleLogout = async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.filter-left-group {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
 }
 
 .filter-pill-btn {
   background-color: #ede9fe;
   color: #4c1d95;
+  border: none;
+  padding: 0.42rem 0.95rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.manual-entry-pill-btn {
+  background-color: #7c5dfa;
+  color: #ffffff;
   border: none;
   padding: 0.42rem 0.95rem;
   border-radius: 999px;
@@ -2543,6 +2570,24 @@ const handleLogout = async () => {
 
 .empty-invoice-state p {
   margin: 0;
+}
+
+.empty-action-group {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.secondary-manual-btn {
+  background-color: #7c5dfa;
+  color: #ffffff;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
 }
 
 .latest-extracted-box {
@@ -3231,32 +3276,14 @@ input:checked + .slider:before { transform: translateX(20px); }
   z-index: 4;
 }
 
-.invoice-type-tabs {
-  display: flex;
+.single-mode-badge {
   background-color: #f3f4f6;
-  padding: 0.25rem;
-  border-radius: 9999px;
-  width: 100%;
-  max-width: 340px;
-}
-
-.type-tab {
-  flex: 1;
-  border: none;
-  background: transparent;
-  padding: 0.5rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: #6b7280;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.type-tab.active {
-  background-color: #ffffff;
   color: #111827;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  padding: 0.45rem 1.5rem;
+  border-radius: 9999px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
 .official-editor-body {
