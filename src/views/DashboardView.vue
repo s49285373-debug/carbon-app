@@ -170,13 +170,12 @@
       <template v-if="currentTab === 'scan'">
         <div class="scanner-wrapper">
 
-          <div class="scanner-top-bar">
+          <div class="scanner-top-bar" :class="{ 'trad-top-bar': invoiceType === 'traditional' }">
             <button class="scanner-text-btn" @click="currentTab = 'home'">&lt; 返回</button>
             <span class="scanner-bar-title">{{ invoiceType === 'traditional' ? '傳統發票手動輸入' : '掃描發票' }}</span>
             <span class="scanner-topbar-spacer"></span>
           </div>
 
-          <!-- 電子發票模式顯示相機鏡頭；傳統發票模式改為純手動輸入介面（不啟動鏡頭辨識） -->
           <div v-if="invoiceType === 'electronic'" class="camera-viewport" ref="viewportRef">
             <video
               ref="videoRef"
@@ -277,36 +276,32 @@
               </button>
             </div>
 
-            <div v-if="successToastMsg && invoiceType === 'traditional'" class="inline-success-banner">
-              ✅ {{ successToastMsg }}
-            </div>
-
-            <div v-if="lastExtractedInvoice" class="latest-extracted-box">
-              <div class="latest-extracted-header">
-                <span>
-                  ✅ <strong>{{ lastExtractedInvoice.invoice_number }}</strong>｜{{ lastExtractedInvoice.merchant_name }}（{{ lastExtractedInvoice.purchase_date }}）
-                </span>
-                <div class="latest-extracted-actions">
-                  <button class="view-passbook-link" @click="currentTab = 'invoices'">前往發票存摺 &gt;</button>
-                  <button class="view-passbook-link" @click="lastExtractedInvoice = null">清除</button>
+            <template v-if="invoiceType === 'electronic'">
+              <div v-if="lastExtractedInvoice" class="latest-extracted-box">
+                <div class="latest-extracted-header">
+                  <span>
+                    ✅ <strong>{{ lastExtractedInvoice.invoice_number }}</strong>｜{{ lastExtractedInvoice.merchant_name }}（{{ lastExtractedInvoice.purchase_date }}）
+                  </span>
+                  <div class="latest-extracted-actions">
+                    <button class="view-passbook-link" @click="currentTab = 'invoices'">前往發票存摺 &gt;</button>
+                    <button class="view-passbook-link" @click="lastExtractedInvoice = null">清除</button>
+                  </div>
+                </div>
+                <div v-if="lastExtractedInvoice.items && lastExtractedInvoice.items.length > 0" class="latest-extracted-items">
+                  <span
+                    v-for="(item, idx) in lastExtractedInvoice.items"
+                    :key="idx"
+                    class="item-chip"
+                    :class="{ 'discount-chip': !isSubstantiveProductItem(item) }"
+                  >
+                    {{ item.item_name }} × {{ item.quantity }}（${{ item.amount }}）
+                  </span>
+                </div>
+                <div v-else class="fallback-preview-text">
+                  📌 {{ lastExtractedInvoice.calc_label || `實付金額：TWD ${Number(lastExtractedInvoice.total_amount || 0).toLocaleString()}` }}
                 </div>
               </div>
-              <div v-if="lastExtractedInvoice.items && lastExtractedInvoice.items.length > 0" class="latest-extracted-items">
-                <span
-                  v-for="(item, idx) in lastExtractedInvoice.items"
-                  :key="idx"
-                  class="item-chip"
-                  :class="{ 'discount-chip': !isSubstantiveProductItem(item) }"
-                >
-                  {{ item.item_name }} × {{ item.quantity }}（${{ item.amount }}）
-                </span>
-              </div>
-              <div v-else class="fallback-preview-text">
-                📌 {{ lastExtractedInvoice.calc_label || `實付金額：TWD ${Number(lastExtractedInvoice.total_amount || 0).toLocaleString()}` }}
-              </div>
-            </div>
 
-            <template v-if="invoiceType === 'electronic'">
               <div class="invoice-guide-illustration">
                 <div class="guide-corners">
                   <div class="mock-receipt">
@@ -326,118 +321,117 @@
               </p>
             </template>
 
-            <!-- 傳統發票：純手動輸入模式（不掃描字軌） -->
+            <!-- 傳統發票：完全依照圖一欄位配置 -->
             <template v-else>
               <div class="trad-manual-panel">
                 <div class="manual-quick-chips">
-                  <button type="button" class="quick-fill-chip" @click="fillQuickSample('拿鐵', '食品飲料', '一次性塑膠杯／外帶盒', 65)">
-                    ＋ 拿鐵 $65
+                  <button type="button" class="quick-fill-chip" @click="fillQuickSample('拿鐵', '食品飲料', '一般包裝', 65)">
+                    + 拿鐵 $65
                   </button>
-                  <button type="button" class="quick-fill-chip" @click="fillQuickSample('滷肉飯', '外食餐點', '一次性塑膠杯／外帶盒', 75)">
-                    ＋ 滷肉飯 $75
+                  <button type="button" class="quick-fill-chip" @click="fillQuickSample('滷肉飯', '食品飲料', '一般包裝', 75)">
+                    + 滷肉飯 $75
                   </button>
                   <button type="button" class="quick-fill-chip" @click="fillQuickSample('全脂鮮乳', '食品飲料', '一般包裝', 95)">
-                    ＋ 全脂鮮乳 $95
+                    + 全脂鮮乳 $95
                   </button>
                 </div>
 
-                <div class="manual-form-grid">
+                <div class="manual-field">
+                  <label class="manual-label">商品／餐點名稱 <span class="official-req">*</span></label>
+                  <input
+                    type="text"
+                    v-model="tradEditorForm.primary_item_name"
+                    placeholder="例如：拿鐵、滷肉飯、全脂鮮乳"
+                    class="official-control"
+                  />
+                </div>
+
+                <div class="manual-two-col">
                   <div class="manual-field">
-                    <label class="manual-label">商品／餐點名稱 <span class="official-req">*</span></label>
+                    <label class="manual-label">數量 <span class="official-req">*</span></label>
                     <input
-                      type="text"
-                      v-model="tradEditorForm.primary_item_name"
-                      placeholder="例如：拿鐵、滷肉飯、全脂鮮乳"
+                      type="number"
+                      min="1"
+                      v-model.number="tradEditorForm.primary_quantity"
                       class="official-control"
                     />
                   </div>
 
-                  <div class="manual-two-col">
-                    <div class="manual-field">
-                      <label class="manual-label">數量 <span class="official-req">*</span></label>
-                      <input
-                        type="number"
-                        min="1"
-                        v-model.number="tradEditorForm.primary_quantity"
-                        class="official-control"
-                      />
-                    </div>
-
-                    <div class="manual-field">
-                      <label class="manual-label">消費日期 <span class="official-req">*</span></label>
-                      <input
-                        type="text"
-                        v-model="tradEditorForm.purchase_date"
-                        placeholder="2026/11/25"
-                        class="official-control"
-                      />
-                    </div>
+                  <div class="manual-field">
+                    <label class="manual-label">消費日期 <span class="official-req">*</span></label>
+                    <input
+                      type="text"
+                      v-model="tradEditorForm.purchase_date"
+                      placeholder="2026/11/25"
+                      class="official-control"
+                    />
                   </div>
+                </div>
 
-                  <div class="manual-two-col">
-                    <div class="manual-field">
-                      <label class="manual-label">包裝／容器狀況 <span class="official-req">*</span></label>
-                      <select v-model="tradEditorForm.packaging_status" class="official-control">
-                        <option value="一般包裝">一般包裝</option>
-                        <option value="一次性塑膠杯／外帶盒">一次性塑膠杯／外帶盒</option>
-                        <option value="自帶容器／環保杯">自帶容器／環保杯</option>
-                      </select>
-                    </div>
-
-                    <div class="manual-field">
-                      <label class="manual-label">消費類別（選填）</label>
-                      <select v-model="tradEditorForm.category_name" class="official-control">
-                        <option value="食品飲料">食品飲料</option>
-                        <option value="外食餐點">外食餐點</option>
-                        <option value="日用品">日用品</option>
-                        <option value="一般消費">一般消費</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div class="manual-two-col">
-                    <div class="manual-field">
-                      <label class="manual-label">發票金額（元） <span class="official-req">*</span></label>
-                      <input
-                        type="number"
-                        min="0"
-                        v-model.number="tradEditorForm.total_amount"
-                        placeholder="0"
-                        class="official-control"
-                      />
-                    </div>
-
-                    <div class="manual-field">
-                      <label class="manual-label">商家名稱（選填）</label>
-                      <input
-                        type="text"
-                        maxlength="20"
-                        v-model="tradEditorForm.merchant_name"
-                        placeholder="請輸入商家名稱"
-                        class="official-control"
-                      />
-                    </div>
+                <div class="manual-two-col">
+                  <div class="manual-field">
+                    <label class="manual-label">包裝／容器狀況 <span class="official-req">*</span></label>
+                    <input
+                      type="text"
+                      v-model="tradEditorForm.packaging_status"
+                      placeholder="一般包裝"
+                      class="official-control"
+                    />
                   </div>
 
                   <div class="manual-field">
-                    <label class="manual-label">傳統發票號碼（選填，2碼英文＋8碼數字）</label>
-                    <div class="official-code-split">
-                      <input
-                        type="text"
-                        v-model="tradEditorForm.track_alpha"
-                        maxlength="2"
-                        placeholder="GH"
-                        class="official-control official-alpha"
-                      />
-                      <input
-                        type="text"
-                        v-model="tradEditorForm.track_digits"
-                        maxlength="8"
-                        inputmode="numeric"
-                        placeholder="74587138"
-                        class="official-control official-digits"
-                      />
-                    </div>
+                    <label class="manual-label">消費類別（選填）</label>
+                    <input
+                      type="text"
+                      v-model="tradEditorForm.category_name"
+                      placeholder="食品飲料"
+                      class="official-control"
+                    />
+                  </div>
+                </div>
+
+                <div class="manual-two-col">
+                  <div class="manual-field">
+                    <label class="manual-label">發票金額（元） <span class="official-req">*</span></label>
+                    <input
+                      type="number"
+                      min="0"
+                      v-model.number="tradEditorForm.total_amount"
+                      placeholder="0"
+                      class="official-control"
+                    />
+                  </div>
+
+                  <div class="manual-field">
+                    <label class="manual-label">商家名稱（選填）</label>
+                    <input
+                      type="text"
+                      maxlength="20"
+                      v-model="tradEditorForm.merchant_name"
+                      placeholder="請輸入商家名稱"
+                      class="official-control"
+                    />
+                  </div>
+                </div>
+
+                <div class="manual-field">
+                  <label class="manual-label">傳統發票號碼（選填，2碼英文＋8碼數字）</label>
+                  <div class="official-code-split">
+                    <input
+                      type="text"
+                      v-model="tradEditorForm.track_alpha"
+                      maxlength="2"
+                      placeholder="GH"
+                      class="official-control official-alpha"
+                    />
+                    <input
+                      type="text"
+                      v-model="tradEditorForm.track_digits"
+                      maxlength="8"
+                      inputmode="numeric"
+                      placeholder="74587138"
+                      class="official-control official-digits"
+                    />
                   </div>
                 </div>
 
@@ -447,7 +441,7 @@
                     class="trad-editor-trigger-btn"
                     @click="openTradEditorModal"
                   >
-                    多筆明細／進階編輯視窗
+                    多筆明細／進階編輯
                   </button>
                   <button
                     type="button"
@@ -525,7 +519,7 @@
 
     </main>
 
-    <!-- 傳統發票【編輯】表單彈窗（支援多筆商品明細與完整欄位） -->
+    <!-- 傳統發票【編輯】彈窗：完全依照圖二欄位配置 -->
     <div v-if="showTradEditorModal" class="manual-modal-overlay" @click.self="showTradEditorModal = false">
       <div class="manual-modal-card official-style-editor">
         <div class="official-editor-header">
@@ -558,7 +552,7 @@
             <input
               type="text"
               v-model="tradEditorForm.purchase_date"
-              placeholder="例如：2026/11/25 或 115/11/25"
+              placeholder="2026/11/25"
               class="official-control official-manual-date"
             />
           </div>
@@ -569,14 +563,12 @@
                 <span>包裝／容器狀況 <span class="official-req">*</span></span>
               </label>
             </div>
-            <div class="official-select-wrap">
-              <select v-model="tradEditorForm.packaging_status" class="official-control official-select">
-                <option value="一般包裝">一般包裝</option>
-                <option value="一次性塑膠杯／外帶盒">一次性塑膠杯／外帶盒</option>
-                <option value="自帶容器／環保杯">自帶容器／環保杯</option>
-              </select>
-              <span class="official-select-arrow">⌄</span>
-            </div>
+            <input
+              type="text"
+              v-model="tradEditorForm.packaging_status"
+              placeholder="一般包裝"
+              class="official-control"
+            />
           </div>
 
           <div class="official-field">
@@ -585,15 +577,12 @@
                 <span>消費類別</span>
               </label>
             </div>
-            <div class="official-select-wrap">
-              <select v-model="tradEditorForm.category_name" class="official-control official-select">
-                <option value="食品飲料">食品飲料</option>
-                <option value="外食餐點">外食餐點</option>
-                <option value="日用品">日用品</option>
-                <option value="一般消費">一般消費</option>
-              </select>
-              <span class="official-select-arrow">⌄</span>
-            </div>
+            <input
+              type="text"
+              v-model="tradEditorForm.category_name"
+              placeholder="食品飲料"
+              class="official-control"
+            />
           </div>
 
           <div class="official-field">
@@ -666,7 +655,7 @@
               <input
                 type="text"
                 v-model="item.item_name"
-                placeholder="請輸入商品名稱（例如：拿鐵、滷肉飯）"
+                placeholder="請輸入商品／餐點名稱"
                 class="official-control official-item-name"
               />
               <div class="official-item-grid">
@@ -691,12 +680,33 @@
               <span class="official-plus-circle">+</span>
               <span>新增商品明細</span>
             </button>
-          </div>
-        </div>
 
-        <div class="official-editor-footer">
-          <button type="button" class="official-cancel-btn" @click="showTradEditorModal = false">取消</button>
-          <button type="button" class="official-save-btn" @click="submitTraditionalInvoice">儲存</button>
+            <button
+              type="button"
+              class="official-confirm-passbook-btn"
+              @click="submitTraditionalInvoice"
+            >
+              確認儲存至發票存摺
+            </button>
+
+            <button
+              type="button"
+              class="official-modal-delete-btn"
+              @click="resetTradEditorForm"
+            >
+              刪除
+            </button>
+
+            <div class="official-notice-card">
+              <div class="official-notice-title">
+                <span class="official-notice-icon">!</span>
+                <span>注意事項</span>
+              </div>
+              <p class="official-notice-text">
+                自行輸入之發票僅提供對獎服務，非屬中獎之領獎憑據，請務必保留紙本發票；發票如有中獎，請於領獎期限內攜帶身分證
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -887,6 +897,22 @@ const fillQuickSample = (itemName, category, packaging, amount) => {
   tradEditorForm.value.total_amount = amount
   if (!tradEditorForm.value.purchase_date) {
     tradEditorForm.value.purchase_date = getTodayFormatted()
+  }
+}
+
+const resetTradEditorForm = () => {
+  tradEditorForm.value = {
+    invoice_type_label: '傳統發票',
+    primary_item_name: '',
+    primary_quantity: 1,
+    purchase_date: getTodayFormatted(),
+    packaging_status: '一般包裝',
+    category_name: '食品飲料',
+    track_alpha: '',
+    track_digits: '',
+    total_amount: 0,
+    merchant_name: '',
+    items: []
   }
 }
 
@@ -1292,8 +1318,8 @@ const submitTraditionalInvoice = async () => {
       : `手填-${Date.now().toString().slice(-6)}`
 
   const storeName = String(tradEditorForm.value.merchant_name || '').trim() || '傳統發票'
-  const categoryName = tradEditorForm.value.category_name || '一般消費'
-  const packagingStatus = tradEditorForm.value.packaging_status || '一般包裝'
+  const categoryName = String(tradEditorForm.value.category_name || '').trim() || '食品飲料'
+  const packagingStatus = String(tradEditorForm.value.packaging_status || '').trim() || '一般包裝'
   const formattedDate = normalizeDateOnly(manualDate)
 
   const reconciled = reconcileInvoiceAmounts(validItems, finalTotalAmount)
@@ -1324,17 +1350,7 @@ const submitTraditionalInvoice = async () => {
   invoiceList.value.unshift(saved)
   lastExtractedInvoice.value = saved
   showTradEditorModal.value = false
-
-  // 重置表單方便下一筆手動輸入
-  tradEditorForm.value.primary_item_name = ''
-  tradEditorForm.value.primary_quantity = 1
-  tradEditorForm.value.total_amount = 0
-  tradEditorForm.value.items = []
-
-  successToastMsg.value = `已儲存 ${saved.summary_title}（TWD ${saved.total_amount}）`
-  setTimeout(() => {
-    successToastMsg.value = ''
-  }, 2200)
+  resetTradEditorForm()
 }
 
 const parseTaiwanInvoiceQr = (rawPayload) => {
@@ -2076,7 +2092,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 傳統發票：採純手動輸入，填寫商品／餐點名稱、數量、消費日期與包裝／容器狀況即可儲存，也可點選「多筆明細／進階編輯視窗」新增多項商品。')
+  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 傳統發票：採純手動輸入，填寫商品／餐點名稱、數量、日期與包裝／容器狀況即可建檔。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
@@ -3121,6 +3137,10 @@ const handleLogout = async () => {
   border-bottom: 1px solid #5d4037;
 }
 
+.scanner-top-bar.trad-top-bar {
+  background-color: #462b22;
+}
+
 .scanner-bar-title {
   font-size: 1.05rem;
   font-weight: bold;
@@ -3309,20 +3329,6 @@ const handleLogout = async () => {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
-.inline-success-banner {
-  width: 100%;
-  max-width: 460px;
-  background-color: #ecfdf5;
-  color: #065f46;
-  border: 1px solid #6ee7b7;
-  border-radius: 10px;
-  padding: 0.55rem 0.85rem;
-  font-size: 0.88rem;
-  font-weight: 700;
-  text-align: center;
-  box-sizing: border-box;
-}
-
 .camera-hint-box {
   text-align: center;
   max-width: 220px;
@@ -3426,11 +3432,11 @@ input:checked + .slider:before { transform: translateX(20px); }
   color: #1f2937;
   border-top-left-radius: 24px;
   border-top-right-radius: 24px;
-  padding: 1.35rem 1.35rem 1.85rem 1.35rem;
+  padding: 1.25rem 1.25rem 1.75rem 1.25rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  gap: 0.9rem;
   margin-top: -12px;
   position: relative;
   z-index: 4;
@@ -3472,10 +3478,10 @@ input:checked + .slider:before { transform: translateX(20px); }
 
 .trad-manual-panel {
   width: 100%;
-  max-width: 460px;
+  max-width: 440px;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.75rem;
 }
 
 .manual-quick-chips {
@@ -3487,24 +3493,16 @@ input:checked + .slider:before { transform: translateX(20px); }
 .quick-fill-chip {
   background-color: #f3f4f6;
   color: #374151;
-  border: 1px solid #d1d5db;
+  border: none;
   border-radius: 999px;
-  padding: 0.3rem 0.7rem;
-  font-size: 0.78rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
 }
 
 .quick-fill-chip:hover {
-  background-color: #ecfdf5;
-  border-color: #10b981;
-  color: #065f46;
-}
-
-.manual-form-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
+  background-color: #e5e7eb;
 }
 
 .manual-two-col {
@@ -3523,31 +3521,26 @@ input:checked + .slider:before { transform: translateX(20px); }
 .manual-label {
   font-size: 0.84rem;
   font-weight: 700;
-  color: #1f2937;
+  color: #111827;
 }
 
 .manual-action-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.65rem;
-  margin-top: 0.2rem;
+  margin-top: 0.15rem;
 }
 
 .trad-editor-trigger-btn {
   width: 100%;
-  background-color: #e0e7ff;
-  color: #3730a3;
+  background-color: #ede9fe;
+  color: #4c1d95;
   border: none;
-  padding: 0.72rem 0.9rem;
-  border-radius: 12px;
-  font-size: 0.9rem;
+  padding: 0.68rem 0.85rem;
+  border-radius: 10px;
+  font-size: 0.88rem;
   font-weight: 700;
   cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.trad-editor-trigger-btn:hover {
-  background-color: #c7d2fe;
 }
 
 .manual-direct-save-btn {
@@ -3555,22 +3548,17 @@ input:checked + .slider:before { transform: translateX(20px); }
   background-color: #059669;
   color: #ffffff;
   border: none;
-  padding: 0.72rem 0.9rem;
-  border-radius: 12px;
-  font-size: 0.92rem;
+  padding: 0.68rem 0.85rem;
+  border-radius: 10px;
+  font-size: 0.88rem;
   font-weight: 700;
   cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.manual-direct-save-btn:hover {
-  background-color: #047857;
 }
 
 .official-style-editor {
   width: 100%;
   max-width: 400px;
-  max-height: 86vh;
+  max-height: 88vh;
   padding: 0;
   gap: 0;
   border-radius: 16px;
@@ -3615,7 +3603,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 .official-editor-body {
   flex: 1;
   min-height: 0;
-  padding: 1rem 1.15rem;
+  padding: 1rem 1.15rem 1.35rem 1.15rem;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
@@ -3779,23 +3767,23 @@ input:checked + .slider:before { transform: translateX(20px); }
   border-radius: 999px;
   background-color: #ffffff;
   color: #111827;
-  font-size: 1rem;
+  font-size: 0.96rem;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.55rem;
+  gap: 0.5rem;
   cursor: pointer;
-  margin-top: 0.15rem;
+  margin-top: 0.1rem;
 }
 
 .official-plus-circle {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background-color: #111827;
   color: #ffffff;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
@@ -3803,37 +3791,71 @@ input:checked + .slider:before { transform: translateX(20px); }
   line-height: 1;
 }
 
-.official-editor-footer {
-  padding: 0.75rem 1.15rem;
-  border-top: 1px solid #e5e7eb;
-  background-color: #ffffff;
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.65rem;
-  flex-shrink: 0;
-  box-sizing: border-box;
-}
-
-.official-cancel-btn {
-  background-color: #f3f4f6;
-  color: #374151;
+.official-confirm-passbook-btn {
+  width: 100%;
+  height: 48px;
   border: none;
-  padding: 0.6rem 1.15rem;
-  border-radius: 8px;
+  border-radius: 999px;
+  background-color: #e5e7eb;
+  color: #374151;
   font-size: 0.95rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
+  transition: all 0.2s;
 }
 
-.official-save-btn {
+.official-confirm-passbook-btn:hover {
   background-color: #7c5dfa;
   color: #ffffff;
+}
+
+.official-modal-delete-btn {
+  width: 100%;
+  background: none;
   border: none;
-  padding: 0.6rem 1.35rem;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: 600;
+  color: #dc2626;
+  font-size: 0.98rem;
+  font-weight: 700;
+  padding: 0.45rem 0;
   cursor: pointer;
+}
+
+.official-notice-card {
+  background-color: #f3f4f6;
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.official-notice-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.official-notice-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: #111827;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.official-notice-text {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: #4b5563;
 }
 
 .invoice-guide-illustration {
@@ -3908,7 +3930,7 @@ input:checked + .slider:before { transform: translateX(20px); }
   font-size: 0.82rem;
   color: #4b5563;
   text-align: center;
-  max-width: 460px;
+  max-width: 440px;
   line-height: 1.5;
   margin: 0;
 }
