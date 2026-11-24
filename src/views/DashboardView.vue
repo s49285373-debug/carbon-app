@@ -700,6 +700,7 @@ const successToastMsg = ref('')
 let scanLoopTimer = null
 let qrPulseTimer = null
 let ocrWorker = null
+let alphaOcrWorker = null
 const isRecognizingTrack = ref(false)
 let lastTrackScanAt = 0
 
@@ -1190,17 +1191,6 @@ const submitTraditionalInvoice = async () => {
   }, 2200)
 }
 
-const normalizeAlphaChar = (ch) => {
-  const c = String(ch || '').toUpperCase()
-  if (c === '0' || c === 'Q' || c === 'D') return 'O'
-  if (c === '1' || c === 'I' || c === 'L') return 'I'
-  if (c === '5' || c === 'S') return 'S'
-  if (c === '8' || c === 'B') return 'B'
-  if (c === '2' || c === 'Z') return 'Z'
-  if (c === '6' || c === 'G') return 'G'
-  return /^[A-Z]$/.test(c) ? c : ''
-}
-
 const normalizeDigitChar = (ch) => {
   const c = String(ch || '').toUpperCase()
   if (/^\d$/.test(c)) return c
@@ -1214,69 +1204,47 @@ const normalizeDigitChar = (ch) => {
   return ''
 }
 
-// 傳統發票字軌抽取（2 碼英文字母 + 8 碼數字，容忍綠印章與底紋雜訊）
-const extractInvoiceTrackCode = (rawStr = '') => {
-  const lines = String(rawStr || '')
-    .split(/\r?\n/)
-    .map((l) => l.trim())
+const extractDigits8FromText = (rawStr = '') => {
+  const cleaned = String(rawStr || '')
+    .toUpperCase()
+    .replace(/11\s*[-–—]\s*12|09\s*[-–—]\s*10|07\s*[-–—]\s*08/g, ' ')
+    .split('')
+    .map(normalizeDigitChar)
+    .join('')
+
+  const m = cleaned.match(/\d{8}/)
+  return m ? m[0] : ''
+}
+
+const extractAlpha2FromText = (rawStr = '') => {
+  const tokens = String(rawStr || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9\s]/g, ' ')
+    .split(/\s+/)
     .filter(Boolean)
 
-  for (const line of lines) {
-    // 排除日期斜線、電話、統編、期別行
-    if (/\d{2,3}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{1,2}/.test(line)) continue
-    if (/統編|TEL|電話|地址|月份|收銀機|收執聯|中壢|台北|台中|台南|高雄/i.test(line)) continue
-
-    // 先把常見連字號拆開，避免把 11-12 算進去
-    const tokens = line
-      .toUpperCase()
-      .replace(/11\s*[-–—]\s*12|09\s*[-–—]\s*10|07\s*[-–—]\s*08|05\s*[-–—]\s*06|03\s*[-–—]\s*04|01\s*[-–—]\s*02/g, ' ')
-      .replace(/[^A-Z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter(Boolean)
-
-    // 情境 A：同一段連續或接近的英數混合（例如 GH74587138 或 GH 74587138）
-    const joined = tokens.join('')
-    const directMatch = joined.match(/([A-Z0-9]{2})([A-Z0-9]{8})/)
-    if (directMatch) {
-      const a1 = normalizeAlphaChar(directMatch[1][0])
-      const a2 = normalizeAlphaChar(directMatch[1][1])
-      const digRaw = directMatch[2].split('').map(normalizeDigitChar).join('')
-      if (a1 && a2 && digRaw.length === 8) {
-        return `${a1}${a2}${digRaw}`
-      }
-    }
-
-    // 情境 B：前一個 token 是 2 碼字母（如 GH），後一個是 8 碼數字（如 74587138）
-    for (let i = 0; i < tokens.length - 1; i++) {
-      const tCur = tokens[i]
-      const tNext = tokens[i + 1]
-      if (tCur.length === 2 && tNext.length >= 8) {
-        const a1 = normalizeAlphaChar(tCur[0])
-        const a2 = normalizeAlphaChar(tCur[1])
-        const dig8 = tNext.slice(0, 8).split('').map(normalizeDigitChar).join('')
-        if (a1 && a2 && dig8.length === 8) {
-          return `${a1}${a2}${dig8}`
-        }
-      }
+  for (const tok of tokens) {
+    const lettersOnly = tok.replace(/[^A-Z]/g, '')
+    if (lettersOnly.length >= 2) {
+      return lettersOnly.slice(0, 2)
     }
   }
-
   return ''
 }
 
-// 針對綠色印章＋發票字軌做預處理：綠色章在 G 通道偏高，深色字在 R/G/B 都低
-const buildTrackCanvas = (srcVideo, cropCanvas, mode = 'green_suppress') => {
+// 裁切指定區域並做綠章抑制＋高對比二元化
+const buildRegionCanvas = (srcVideo, cropCanvas, region, threshold = 135) => {
   const vw = srcVideo.videoWidth
   const vh = srcVideo.videoHeight
   if (!vw || !vh || !cropCanvas) return null
 
-  const sx = Math.floor(vw * 0.14)
-  const sy = Math.floor(vh * 0.34)
-  const sw = Math.floor(vw * 0.72)
-  const sh = Math.floor(vh * 0.22)
+  const sx = Math.floor(vw * region.x)
+  const sy = Math.floor(vh * region.y)
+  const sw = Math.floor(vw * region.w)
+  const sh = Math.floor(vh * region.h)
 
-  const targetW = 1000
-  const targetH = Math.max(180, Math.round((sh / sw) * targetW))
+  const targetW = region.targetW || 700
+  const targetH = Math.max(140, Math.round((sh / sw) * targetW))
   cropCanvas.width = targetW
   cropCanvas.height = targetH
 
@@ -1291,29 +1259,12 @@ const buildTrackCanvas = (srcVideo, cropCanvas, mode = 'green_suppress') => {
     const r = data[i]
     const g = data[i + 1]
     const b = data[i + 2]
-
-    if (mode === 'green_suppress') {
-      // 綠章區域 g 明顯高於 r、b，將其推向白色；深色字軌 r,g,b 皆低
-      const isGreenSeal = g - Math.max(r, b) > 12 && r > 90
-      const lum = 0.299 * r + 0.587 * g + 0.114 * b
-      const val = isGreenSeal ? 255 : lum < 128 ? 0 : 255
-      data[i] = val
-      data[i + 1] = val
-      data[i + 2] = val
-    } else if (mode === 'contrast_gray') {
-      const lum = 0.299 * r + 0.587 * g + 0.114 * b
-      const stretched = Math.max(0, Math.min(255, (lum - 95) * 1.9))
-      const val = stretched < 115 ? 0 : 255
-      data[i] = val
-      data[i + 1] = val
-      data[i + 2] = val
-    } else {
-      const minCh = Math.min(r, g, b)
-      const val = minCh < 135 ? 0 : 255
-      data[i] = val
-      data[i + 1] = val
-      data[i + 2] = val
-    }
+    const isGreenSeal = g - Math.max(r, b) > 10 && r > 85
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b
+    const val = isGreenSeal ? 255 : lum < threshold ? 0 : 255
+    data[i] = val
+    data[i + 1] = val
+    data[i + 2] = val
   }
   ctx.putImageData(imgData, 0, 0)
   return cropCanvas
@@ -1321,7 +1272,7 @@ const buildTrackCanvas = (srcVideo, cropCanvas, mode = 'green_suppress') => {
 
 const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
   if (!srcVideo || !cropCanvas || isRecognizingTrack.value || showTradEditorModal.value) return
-  if (Date.now() - lastTrackScanAt < 500) return
+  if (Date.now() - lastTrackScanAt < 550) return
   lastTrackScanAt = Date.now()
 
   isRecognizingTrack.value = true
@@ -1330,29 +1281,61 @@ const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
       ocrWorker = await createWorker('eng', 1, { logger: () => {} })
       await ocrWorker.setParameters({
         tessedit_pageseg_mode: PSM.SINGLE_LINE,
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '
+        tessedit_char_whitelist: '0123456789OQDILSBZGT '
       })
     }
 
-    const modes = ['green_suppress', 'contrast_gray', 'min_channel']
-    for (const mode of modes) {
-      const processed = buildTrackCanvas(srcVideo, cropCanvas, mode)
-      if (!processed) break
+    if (!alphaOcrWorker) {
+      alphaOcrWorker = await createWorker('eng', 1, { logger: () => {} })
+      await alphaOcrWorker.setParameters({
+        tessedit_pageseg_mode: PSM.SINGLE_WORD,
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+      })
+    }
 
-      const { data: ocrResult } = await ocrWorker.recognize(processed)
-      const fullText = ocrResult?.text || ''
-      const foundTrack = extractInvoiceTrackCode(fullText)
+    // 1. 辨識右側 8 碼數字
+    let digits8 = ''
+    for (const th of [125, 155]) {
+      const digCanvas = buildRegionCanvas(
+        srcVideo,
+        cropCanvas,
+        { x: 0.30, y: 0.35, w: 0.56, h: 0.19, targetW: 900 },
+        th
+      )
+      if (!digCanvas) break
+      const { data: digRes } = await ocrWorker.recognize(digCanvas)
+      digits8 = extractDigits8FromText(digRes?.text || '')
+      if (digits8.length === 8) break
+    }
 
-      if (foundTrack && foundTrack !== scannedTradNumber.value) {
-        scannedTradNumber.value = foundTrack
-        applyScannedTrackToForm(foundTrack)
-        triggerGreenPulse()
-        successToastMsg.value = `已辨識字軌 ${foundTrack.slice(0, 2)} ${foundTrack.slice(2)}`
-        setTimeout(() => {
-          successToastMsg.value = ''
-        }, 1800)
-        break
-      }
+    if (digits8.length !== 8) return
+
+    // 2. 獨立放大辨識左側 2 碼英文字母軌
+    let alpha2 = ''
+    for (const th of [120, 150, 175]) {
+      const alphaCanvas = buildRegionCanvas(
+        srcVideo,
+        cropCanvas,
+        { x: 0.14, y: 0.35, w: 0.22, h: 0.19, targetW: 520 },
+        th
+      )
+      if (!alphaCanvas) break
+      const { data: alphaRes } = await alphaOcrWorker.recognize(alphaCanvas)
+      alpha2 = extractAlpha2FromText(alphaRes?.text || '')
+      if (alpha2.length === 2) break
+    }
+
+    if (alpha2.length !== 2) return
+
+    const fullTrack = `${alpha2}${digits8}`
+    if (fullTrack !== scannedTradNumber.value) {
+      scannedTradNumber.value = fullTrack
+      applyScannedTrackToForm(fullTrack)
+      triggerGreenPulse()
+      successToastMsg.value = `已辨識字軌 ${alpha2} ${digits8}`
+      setTimeout(() => {
+        successToastMsg.value = ''
+      }, 1800)
     }
   } catch (err) {
     console.warn('字軌掃描略過：', err)
@@ -1978,6 +1961,14 @@ onBeforeUnmount(async () => {
       // 忽略清理例外
     }
     ocrWorker = null
+  }
+  if (alphaOcrWorker) {
+    try {
+      await alphaOcrWorker.terminate()
+    } catch {
+      // 忽略清理例外
+    }
+    alphaOcrWorker = null
   }
 })
 
