@@ -365,7 +365,7 @@
                 </button>
 
                 <p class="scanner-footer-note">
-                  傳統發票無商品 QR Code，將字軌對準綠色框自動辨識帶入，或點擊「編輯發票明細並儲存」填寫日期、金額、商家與商品明細。
+                  將字軌與日期對準綠色框自動辨識帶入，或點擊「編輯發票明細並儲存」填寫日期、金額、商家與商品明細。
                 </p>
               </div>
             </template>
@@ -441,8 +441,13 @@
         </div>
 
         <div class="official-editor-body">
+          <!-- 1. 發票類型 * -->
           <div class="official-field">
-            <label class="official-label">發票類型 <span class="official-req">*</span></label>
+            <div class="official-label-row">
+              <label class="official-label">
+                <span>發票類型 <span class="official-req">*</span></span>
+              </label>
+            </div>
             <div class="official-select-wrap">
               <select v-model="tradEditorForm.invoice_type_label" class="official-control official-select">
                 <option value="傳統發票">傳統發票</option>
@@ -451,20 +456,29 @@
             </div>
           </div>
 
+          <!-- 2. 發票日期 * -->
           <div class="official-field">
-            <label class="official-label">發票日期 <span class="official-req">*</span></label>
+            <div class="official-label-row">
+              <label class="official-label">
+                <span>發票日期 <span class="official-req">*</span></span>
+              </label>
+              <span v-if="scannedTradDate" class="official-scanned-badge">已自動辨識日期</span>
+            </div>
             <input
               type="date"
               v-model="tradEditorForm.purchase_date"
-              class="official-control"
+              class="official-control official-date-input"
             />
           </div>
 
+          <!-- 3. 發票號碼 * -->
           <div class="official-field">
-            <label class="official-label">
-              <span>發票號碼 <span class="official-req">*</span></span>
+            <div class="official-label-row">
+              <label class="official-label">
+                <span>發票號碼 <span class="official-req">*</span></span>
+              </label>
               <span v-if="scannedTradNumber" class="official-scanned-badge">已自動掃描帶入</span>
-            </label>
+            </div>
             <div class="official-code-split">
               <input
                 type="text"
@@ -484,8 +498,13 @@
             </div>
           </div>
 
+          <!-- 4. 發票金額 * -->
           <div class="official-field">
-            <label class="official-label">發票金額 <span class="official-req">*</span></label>
+            <div class="official-label-row">
+              <label class="official-label">
+                <span>發票金額 <span class="official-req">*</span></span>
+              </label>
+            </div>
             <input
               type="number"
               min="0"
@@ -495,10 +514,13 @@
             />
           </div>
 
+          <!-- 5. 商家名稱 0/20 -->
           <div class="official-field">
-            <label class="official-label">
-              <span>商家名稱 <span class="official-count">{{ (tradEditorForm.merchant_name || '').length }}/20</span></span>
-            </label>
+            <div class="official-label-row">
+              <label class="official-label">
+                <span>商家名稱 <span class="official-count">{{ (tradEditorForm.merchant_name || '').length }}/20</span></span>
+              </label>
+            </div>
             <input
               type="text"
               maxlength="20"
@@ -508,6 +530,7 @@
             />
           </div>
 
+          <!-- 6. 商品明細 + ⊕ 新增商品明細 -->
           <div class="official-items-block">
             <div class="official-items-title">商品明細</div>
 
@@ -696,6 +719,9 @@ let ocrWorker = null
 const isRecognizingTrack = ref(false)
 let lastTrackScanAt = 0
 
+let candidateTrack = ''
+let candidateTrackHits = 0
+
 let pendingLeftQr = null
 let pendingRightItems = []
 let pendingRightAt = 0
@@ -721,6 +747,8 @@ const TRACK_CATEGORY_MAP = {
 const NON_CARBON_KEYWORDS = ['代收', '代繳', '手續費', '跨行', '物流費', '運費']
 
 const scannedTradNumber = ref('')
+const scannedTradDate = ref('')
+
 const scannedTradFormatted = computed(() => {
   const clean = String(scannedTradNumber.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
   if (clean.length === 10) {
@@ -1107,9 +1135,12 @@ const openTradEditorModal = () => {
 
   tradEditorForm.value = {
     invoice_type_label: '傳統發票',
-    purchase_date: new Date().toISOString().slice(0, 10),
-    track_alpha: match ? match[1] : '',
-    track_digits: match ? match[2] : '',
+    purchase_date:
+      scannedTradDate.value ||
+      tradEditorForm.value.purchase_date ||
+      new Date().toISOString().slice(0, 10),
+    track_alpha: match ? match[1] : tradEditorForm.value.track_alpha || '',
+    track_digits: match ? match[2] : tradEditorForm.value.track_digits || '',
     total_amount: 0,
     merchant_name: '',
     category_name: '一般消費',
@@ -1212,6 +1243,9 @@ const submitTraditionalInvoice = async () => {
   lastExtractedInvoice.value = saved
   showTradEditorModal.value = false
   scannedTradNumber.value = ''
+  scannedTradDate.value = ''
+  candidateTrack = ''
+  candidateTrackHits = 0
 
   successToastMsg.value = `已儲存 ${saved.invoice_number}`
   setTimeout(() => {
@@ -1227,28 +1261,65 @@ const extractInvoiceTrackCode = (rawStr = '') => {
     .replace(/[^A-Z0-9]/g, ' ')
     .trim()
 
-  const directMatch = cleaned.match(/\b([A-Z]{2})\s*[-·.]?\s*(\d{8})\b/)
-  if (directMatch) {
-    return `${directMatch[1]}${directMatch[2]}`
-  }
+  const match = cleaned.match(/\b([A-Z]{2})\s*[-·.]?\s*(\d{8})\b/)
+  if (!match) return ''
 
-  const compact = cleaned.replace(/\s+/g, '')
-  const compactMatch = compact.match(/([A-Z]{2}\d{8})/)
-  return compactMatch ? compactMatch[1] : ''
+  const alpha = match[1]
+  const digits = match[2]
+  if (/^([A-Z])\1$/.test(alpha) && !['EE', 'FF', 'GG', 'MM', 'NN', 'PP', 'SS', 'TT', 'UU'].includes(alpha)) {
+    return ''
+  }
+  return `${alpha}${digits}`
 }
 
-const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 120) => {
+const parseTraditionalDateIso = (rawStr = '') => {
+  const text = String(rawStr || '')
+    .replaceAll('—', '-')
+    .replaceAll('–', '-')
+    .replaceAll('～', '-')
+    .replaceAll('~', '-')
+
+  // 1. 西元完整日期：2026/09/15、2026-09-15、2026.09.15
+  const adFull = text.match(/\b(20\d{2})\s*[/.-]\s*(0?[1-9]|1[0-2])\s*[/.-]\s*(0?[1-9]|[12]\d|3[01])\b/)
+  if (adFull) {
+    const y = adFull[1]
+    const m = adFull[2].padStart(2, '0')
+    const d = adFull[3].padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+
+  // 2. 民國完整日期：115/09/15、115-09-15、115.09.15、115年09月15日
+  const rocFull = text.match(/\b(10\d|11\d|12\d)\s*(?:年|[/.-])\s*(0?[1-9]|1[0-2])\s*(?:月|[/.-])\s*(0?[1-9]|[12]\d|3[01])\s*日?\b/)
+  if (rocFull) {
+    const adYear = Number(rocFull[1]) + 1911
+    const m = rocFull[2].padStart(2, '0')
+    const d = rocFull[3].padStart(2, '0')
+    return `${adYear}-${m}-${d}`
+  }
+
+  // 3. 雙月期別（如 115年09-10月 或 115年09–10月），帶入該期起始日
+  const rocPeriod = text.match(/\b(10\d|11\d|12\d)\s*年\s*(0?[1-9]|1[0-2])\s*-\s*(0?[1-9]|1[0-2])\s*月?/)
+  if (rocPeriod) {
+    const adYear = Number(rocPeriod[1]) + 1911
+    const startMonth = rocPeriod[2].padStart(2, '0')
+    return `${adYear}-${startMonth}-01`
+  }
+
+  return ''
+}
+
+const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 125) => {
   const vw = srcVideo.videoWidth
   const vh = srcVideo.videoHeight
   if (!vw || !vh || !cropCanvas) return null
 
-  const sx = Math.floor(vw * 0.12)
-  const sy = Math.floor(vh * 0.35)
-  const sw = Math.floor(vw * 0.76)
-  const sh = Math.floor(vh * 0.24)
+  const sx = Math.floor(vw * 0.08)
+  const sy = Math.floor(vh * 0.25)
+  const sw = Math.floor(vw * 0.84)
+  const sh = Math.floor(vh * 0.42)
 
-  const targetW = 720
-  const targetH = Math.max(140, Math.round((sh / sw) * targetW))
+  const targetW = 800
+  const targetH = Math.max(180, Math.round((sh / sw) * targetW))
   cropCanvas.width = targetW
   cropCanvas.height = targetH
 
@@ -1272,7 +1343,7 @@ const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 120) => {
 
 const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
   if (!srcVideo || !cropCanvas || isRecognizingTrack.value || showTradEditorModal.value) return
-  if (Date.now() - lastTrackScanAt < 1800) return
+  if (Date.now() - lastTrackScanAt < 1200) return
   lastTrackScanAt = Date.now()
 
   isRecognizingTrack.value = true
@@ -1280,18 +1351,33 @@ const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
     if (!ocrWorker) {
       ocrWorker = await createWorker('eng', 1, { logger: () => {} })
       await ocrWorker.setParameters({
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/-.'
       })
     }
 
-    for (const th of [105, 145]) {
+    for (const th of [95, 130, 165]) {
       const processed = buildBinarizedCanvas(srcVideo, cropCanvas, th)
       if (!processed) break
+
       const { data: ocrResult } = await ocrWorker.recognize(processed)
-      const foundTrack = extractInvoiceTrackCode(ocrResult?.text || '')
+      const fullText = ocrResult?.text || ''
+      const foundTrack = extractInvoiceTrackCode(fullText)
+      const foundDate = parseTraditionalDateIso(fullText)
+
+      if (foundDate && foundDate !== scannedTradDate.value) {
+        scannedTradDate.value = foundDate
+        tradEditorForm.value.purchase_date = foundDate
+      }
 
       if (foundTrack) {
-        if (foundTrack !== scannedTradNumber.value) {
+        if (foundTrack === candidateTrack) {
+          candidateTrackHits += 1
+        } else {
+          candidateTrack = foundTrack
+          candidateTrackHits = 1
+        }
+
+        if (candidateTrackHits >= 2 && foundTrack !== scannedTradNumber.value) {
           scannedTradNumber.value = foundTrack
           applyScannedTrackToForm(foundTrack)
           triggerGreenPulse()
@@ -1933,6 +2019,9 @@ onBeforeUnmount(async () => {
 const openScanTab = async () => {
   lastExtractedInvoice.value = null
   scannedTradNumber.value = ''
+  scannedTradDate.value = ''
+  candidateTrack = ''
+  candidateTrackHits = 0
   scanError.value = false
   duplicateAlertMsg.value = ''
   successToastMsg.value = ''
@@ -2049,7 +2138,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 傳統發票：將字軌號碼對準中央綠色框可自動辨識並帶入號碼，或點選「編輯發票明細並儲存」輸入日期、金額、商家與商品明細。\n3. 折扣列不扣減碳排；純代收與手續費不列入實物碳排。')
+  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 傳統發票：將字軌號碼與日期對準綠色框可自動辨識帶入，或點選「編輯發票明細並儲存」輸入日期、金額、商家與商品明細。\n3. 折扣列不扣減碳排；純代收與手續費不列入實物碳排。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
@@ -3528,13 +3617,15 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 .official-style-editor {
-  max-width: 420px;
-  max-height: 92vh;
+  width: 100%;
+  max-width: 400px;
+  max-height: 90vh;
   padding: 0;
   gap: 0;
   border-radius: 16px;
   overflow: hidden;
   background-color: #ffffff;
+  box-sizing: border-box;
 }
 
 .official-editor-header {
@@ -3568,26 +3659,40 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 .official-editor-body {
-  padding: 1.15rem 1.2rem 1rem 1.2rem;
+  padding: 1.1rem 1.15rem;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 1.05rem;
+  gap: 1rem;
+  box-sizing: border-box;
 }
 
 .official-field {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.4rem;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
-.official-label {
-  font-size: 0.98rem;
-  font-weight: 600;
-  color: #111827;
+.official-label-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.official-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #111827;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
 }
 
 .official-req {
@@ -3596,12 +3701,14 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 .official-scanned-badge {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 700;
   color: #059669;
   background-color: #ecfdf5;
-  padding: 0.15rem 0.55rem;
+  padding: 0.18rem 0.55rem;
   border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .official-count {
@@ -3613,11 +3720,13 @@ input:checked + .slider:before { transform: translateX(20px); }
 
 .official-control {
   width: 100%;
-  height: 48px;
-  padding: 0 0.9rem;
+  max-width: 100%;
+  min-width: 0;
+  height: 46px;
+  padding: 0 0.85rem;
   border: 1.5px solid #cbd5e1;
   border-radius: 10px;
-  font-size: 0.98rem;
+  font-size: 0.95rem;
   color: #111827;
   background-color: #ffffff;
   box-sizing: border-box;
@@ -3628,10 +3737,22 @@ input:checked + .slider:before { transform: translateX(20px); }
   border-color: #7c5dfa;
 }
 
+.official-date-input {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  text-align: left;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .official-select-wrap {
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
+  min-width: 0;
 }
 
 .official-select {
@@ -3650,8 +3771,10 @@ input:checked + .slider:before { transform: translateX(20px); }
 
 .official-code-split {
   display: grid;
-  grid-template-columns: 120px 1fr;
-  gap: 0.65rem;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 0.6rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .official-alpha {
@@ -3684,6 +3807,7 @@ input:checked + .slider:before { transform: translateX(20px); }
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
+  box-sizing: border-box;
 }
 
 .official-item-top {
@@ -3705,7 +3829,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 
 .official-item-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.6rem;
 }
 
@@ -3741,12 +3865,13 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 .official-editor-footer {
-  padding: 0.8rem 1.2rem;
+  padding: 0.75rem 1.15rem;
   border-top: 1px solid #e5e7eb;
   background-color: #ffffff;
   display: flex;
   justify-content: flex-end;
   gap: 0.65rem;
+  box-sizing: border-box;
 }
 
 .official-cancel-btn {
