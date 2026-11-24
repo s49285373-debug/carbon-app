@@ -344,12 +344,11 @@
 
             <template v-else>
               <div class="trad-clean-panel">
-                <div class="trad-sample-card">
+                <!-- 靜態範例示意卡（非按鈕，僅供視覺參考） -->
+                <div class="trad-sample-card" aria-hidden="true">
                   <div class="trad-sample-top">中華民國115年09-10月</div>
                   <div class="trad-sample-mid">收銀機統一發票（收執聯）</div>
-                  <div class="trad-sample-code-box">
-                    {{ scannedTradFormatted || 'EF 54403818' }}
-                  </div>
+                  <div class="trad-sample-code-box">EF 54403818</div>
                   <div class="trad-sample-meta">
                     <span>NO.28710517</span>
                     <span>台中市北區育才北路</span>
@@ -365,7 +364,7 @@
                 </button>
 
                 <p class="scanner-footer-note">
-                  將字軌對準綠色框可自動帶入字軌號碼；日期請手動輸入，也可點擊「編輯發票明細並儲存」填寫完整資訊。
+                  將上方綠色框對準任一張傳統發票字軌即可自動帶入；發票日期請於編輯視窗手動輸入。
                 </p>
               </div>
             </template>
@@ -456,7 +455,7 @@
             </div>
           </div>
 
-          <!-- 2. 發票日期 *（改為手動輸入） -->
+          <!-- 2. 發票日期 *（手動輸入） -->
           <div class="official-field">
             <div class="official-label-row">
               <label class="official-label">
@@ -798,7 +797,6 @@ const normalizeDateOnly = (rawVal) => {
 
   if (!str) return '2026/10/30'
 
-  // 支援民國日期輸入（如 115/09/15 或 115-09-15 或 115年09月15日）
   const rocMatch = str.match(/^(\d{2,3})\s*[年/.-]\s*(\d{1,2})\s*[月/.-]\s*(\d{1,2})\s*日?$/)
   if (rocMatch) {
     const adYear = Number(rocMatch[1]) + 1911
@@ -807,7 +805,6 @@ const normalizeDateOnly = (rawVal) => {
     return `${adYear}/${mm}/${dd}`
   }
 
-  // 支援西元日期輸入（如 2026/09/15 或 2026-09-15）
   const adMatch = str.match(/^(\d{4})\s*[年/.-]\s*(\d{1,2})\s*[月/.-]\s*(\d{1,2})\s*日?$/)
   if (adMatch) {
     const yyyy = adMatch[1]
@@ -1272,6 +1269,7 @@ const submitTraditionalInvoice = async () => {
   }, 2200)
 }
 
+// 任何傳統發票的 2 碼英文字母 + 8 碼數字字軌皆可辨識
 const extractInvoiceTrackCode = (rawStr = '') => {
   const cleaned = String(rawStr || '')
     .toUpperCase()
@@ -1283,12 +1281,7 @@ const extractInvoiceTrackCode = (rawStr = '') => {
   const match = cleaned.match(/\b([A-Z]{2})\s*[-·.]?\s*(\d{8})\b/)
   if (!match) return ''
 
-  const alpha = match[1]
-  const digits = match[2]
-  if (/^([A-Z])\1$/.test(alpha) && !['EE', 'FF', 'GG', 'MM', 'NN', 'PP', 'SS', 'TT', 'UU'].includes(alpha)) {
-    return ''
-  }
-  return `${alpha}${digits}`
+  return `${match[1]}${match[2]}`
 }
 
 const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 125) => {
@@ -3485,7 +3478,7 @@ input:checked + .slider:before { transform: translateX(20px); }
   color: #1f2937;
   border-top-left-radius: 24px;
   border-top-right-radius: 24px;
-  padding: 1.35rem 1.35rem 1.65rem 1.35rem;
+  padding: 1.35rem 1.35rem 1.85rem 1.35rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3540,6 +3533,8 @@ input:checked + .slider:before { transform: translateX(20px); }
   padding: 0.65rem 0.55rem;
   text-align: center;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  pointer-events: none;
+  user-select: none;
 }
 
 .trad-sample-top {
