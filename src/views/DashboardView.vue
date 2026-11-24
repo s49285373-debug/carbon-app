@@ -20,7 +20,7 @@
         <section class="banner-card">
           <div class="banner-content">
             <h2>🧾 電子發票與傳統發票帳本</h2>
-            <p>快速掃描電子發票左右 QR Code，或登錄傳統發票字軌與商品明細，統一管理消費紀錄。</p>
+            <p>快速掃描電子發票左右 QR Code，或掃描／登錄傳統發票字軌與商品明細，統一管理消費紀錄。</p>
           </div>
           <div class="banner-stats">
             <div class="mini-stat">
@@ -46,7 +46,7 @@
                 <div class="task-icon green-bg">📷</div>
                 <div>
                   <h4>掃描電子發票 / 登錄傳統發票</h4>
-                  <p>掃描電子發票 QR Code 或輸入傳統發票字軌與商品明細</p>
+                  <p>掃描電子發票 QR Code 或掃描傳統發票字軌與編輯明細</p>
                 </div>
               </div>
               <button class="action-plus-btn" @click="openScanTab">+</button>
@@ -186,6 +186,7 @@
               muted
             ></video>
             <canvas ref="decodeCanvasRef" class="hidden-decode-canvas"></canvas>
+            <canvas ref="trackCropCanvasRef" class="hidden-decode-canvas"></canvas>
 
             <div class="qr-bounding-layer">
               <div
@@ -216,10 +217,11 @@
                 </button>
               </div>
 
+              <!-- 電子發票模式：正方形掃描框；傳統發票模式：綠色字軌對準框 -->
               <div
                 class="focus-frame"
                 :class="{
-                  'is-detected': detectedBoxes.length > 0 || qrPulseDetected,
+                  'is-detected': detectedBoxes.length > 0 || qrPulseDetected || Boolean(scannedTradNumber),
                   'traditional-track-frame': invoiceType === 'traditional'
                 }"
               >
@@ -246,8 +248,11 @@
                   <p v-else class="hint-text">正在啟動相機，請稍候...</p>
                 </div>
 
-                <div v-else-if="invoiceType === 'traditional'" class="trad-frame-guide-label">
-                  請核對傳統發票字軌號碼（如 EF 54403818）
+                <!-- 傳統發票：中央綠色字軌對準框（對齊右邊官方畫面） -->
+                <div v-else-if="invoiceType === 'traditional'" class="trad-green-target-box">
+                  <span class="trad-target-text">
+                    {{ scannedTradFormatted || (isRecognizingTrack ? '辨識字軌中...' : '將字軌對準框內') }}
+                  </span>
                 </div>
               </div>
 
@@ -265,6 +270,7 @@
             </div>
           </div>
 
+          <!-- 底部白底卡片：對齊右邊官方版面結構 -->
           <div class="scanner-bottom-sheet">
             <div class="invoice-type-tabs">
               <button
@@ -309,7 +315,7 @@
               </div>
             </div>
 
-            <!-- 分支 A：電子發票證明聯引導圖 -->
+            <!-- 電子發票證明聯引導 -->
             <template v-else-if="invoiceType === 'electronic'">
               <div class="invoice-guide-illustration">
                 <div class="guide-corners">
@@ -330,58 +336,45 @@
               </p>
             </template>
 
-            <!-- 分支 B：傳統發票（選擇期別＋字軌輸入＋編輯發票明細並儲存） -->
+            <!-- 傳統發票：對齊右邊官方乾淨白底排版＋支援掃描字軌與編輯明細 -->
             <template v-else>
-              <div class="trad-official-panel">
-                <div class="trad-period-row">
+              <div class="trad-clean-panel">
+                <div class="trad-period-strip">
                   <button
                     type="button"
-                    class="trad-period-picker-btn"
+                    class="trad-period-pill"
                     @click="showPeriodPickerModal = true"
                   >
-                    <span>{{ selectedTradPeriod }}</span>
-                    <span class="picker-caret">▾</span>
+                    {{ selectedTradPeriod }} ▾
                   </button>
-                  <span class="trad-v-sep">|</span>
-                  <span class="trad-track-preview">
-                    {{ tradPreviewInvoiceNumber || '輸入字軌號碼' }}
+                  <span class="trad-strip-sep">|</span>
+                  <span class="trad-strip-code">
+                    {{ scannedTradFormatted || '掃描或編輯字軌' }}
                   </span>
                 </div>
 
-                <div class="trad-quick-track-inputs">
-                  <input
-                    type="text"
-                    v-model="tradTrackAlpha"
-                    maxlength="2"
-                    placeholder="英文軌 (如 EF)"
-                    class="trad-alpha-input"
-                  />
-                  <input
-                    type="text"
-                    v-model="tradTrackDigits"
-                    maxlength="8"
-                    inputmode="numeric"
-                    placeholder="8碼號碼 (如 54403818)"
-                    class="trad-digits-input"
-                  />
+                <div class="trad-sample-card">
+                  <div class="trad-sample-top">中華民國115年09-10月</div>
+                  <div class="trad-sample-mid">收銀機統一發票（收執聯）</div>
+                  <div class="trad-sample-code-box">
+                    {{ scannedTradFormatted || 'EF 54403818' }}
+                  </div>
+                  <div class="trad-sample-meta">
+                    <span>NO.28710517</span>
+                    <span>台中市北區育才北路</span>
+                  </div>
                 </div>
 
                 <button
                   type="button"
-                  class="trad-edit-save-btn"
+                  class="trad-editor-trigger-btn"
                   @click="openTradEditorModal"
                 >
                   編輯發票明細並儲存
                 </button>
 
-                <div class="mock-trad-receipt-mini">
-                  <div class="mock-trad-title">中華民國115年09-10月</div>
-                  <div class="mock-trad-sub">收銀機統一發票（收執聯）</div>
-                  <div class="mock-trad-highlight">EF 54403818</div>
-                </div>
-
                 <p class="scanner-footer-note">
-                  傳統發票無商品 QR Code，請選擇期別並點擊「編輯發票明細並儲存」，手動輸入金額與商品明細。
+                  傳統發票無商品 QR Code，對準字軌自動辨識或點擊「編輯發票明細並儲存」，填寫日期、金額、商家與商品明細。
                 </p>
               </div>
             </template>
@@ -522,7 +515,7 @@
               type="text"
               maxlength="20"
               v-model="tradEditorForm.merchant_name"
-              placeholder="請輸入商家名稱（如 蔓蓉館文化事業）"
+              placeholder="請輸入商家名稱"
               class="editor-input"
             />
           </div>
@@ -538,7 +531,6 @@
             </select>
           </div>
 
-          <!-- 商品明細區塊 -->
           <div class="editor-items-section">
             <div class="editor-items-header">
               <strong>商品明細</strong>
@@ -563,7 +555,7 @@
               <input
                 type="text"
                 v-model="item.item_name"
-                placeholder="商品／餐點名稱（如 原子筆、拿鐵）"
+                placeholder="商品／餐點名稱"
                 class="editor-input mb-2"
               />
               <div class="trad-item-num-row">
@@ -702,6 +694,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import jsQR from 'jsqr'
+import { createWorker } from 'tesseract.js'
 
 const router = useRouter()
 const nickname = ref('使用者')
@@ -713,6 +706,7 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:800
 const viewportRef = ref(null)
 const videoRef = ref(null)
 const decodeCanvasRef = ref(null)
+const trackCropCanvasRef = ref(null)
 const mediaStream = ref(null)
 const flashOn = ref(false)
 const soundOn = ref(true)
@@ -731,16 +725,20 @@ const duplicateAlertMsg = ref('')
 const successToastMsg = ref('')
 let scanLoopTimer = null
 let qrPulseTimer = null
+let ocrWorker = null
+let isRecognizingTrack = ref(false)
+let lastTrackScanAt = 0
 
-let pendingLeftQr = null
-let pendingRightItems = []
-let pendingRightAt = 0
-let mergeFlushTimer = null
-let rightFallbackTimer = null
-const RIGHT_QR_HOLD_MS = 6000
-const LEFT_WAIT_RIGHT_MS = 1800
+// 傳統發票字軌掃描與表單狀態
+const scannedTradNumber = ref('')
+const scannedTradFormatted = computed(() => {
+  const clean = String(scannedTradNumber.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (clean.length === 10) {
+    return `${clean.slice(0, 2)} ${clean.slice(2)}`
+  }
+  return clean
+})
 
-// 傳統發票狀態
 const tradPeriodOptions = [
   '115年11-12月',
   '115年09-10月',
@@ -752,14 +750,6 @@ const tradPeriodOptions = [
 const selectedTradPeriod = ref('115年09-10月')
 const showPeriodPickerModal = ref(false)
 const showTradEditorModal = ref(false)
-const tradTrackAlpha = ref('')
-const tradTrackDigits = ref('')
-
-const tradPreviewInvoiceNumber = computed(() => {
-  const alpha = String(tradTrackAlpha.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2)
-  const digits = String(tradTrackDigits.value || '').replace(/\D/g, '').slice(0, 8)
-  return `${alpha}${digits}`
-})
 
 const tradEditorForm = ref({
   period: '115年09-10月',
@@ -780,8 +770,10 @@ const tradItemsAmountSum = computed(() => {
 })
 
 const openTradEditorModal = () => {
-  const alpha = String(tradTrackAlpha.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2)
-  const digits = String(tradTrackDigits.value || '').replace(/\D/g, '').slice(0, 8)
+  const clean = String(scannedTradNumber.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const alpha = clean.slice(0, 2)
+  const digits = clean.slice(2, 10)
+
   tradEditorForm.value = {
     period: selectedTradPeriod.value,
     purchase_date: new Date().toISOString().slice(0, 10),
@@ -881,14 +873,103 @@ const submitTraditionalInvoice = async () => {
   invoiceList.value.unshift(saved)
   lastExtractedInvoice.value = saved
   showTradEditorModal.value = false
-  tradTrackAlpha.value = ''
-  tradTrackDigits.value = ''
+  scannedTradNumber.value = ''
 
   successToastMsg.value = `已儲存 ${saved.invoice_number}`
   setTimeout(() => {
     successToastMsg.value = ''
   }, 2200)
 }
+
+// 實際掃描中央綠色對準框內的傳統發票字軌（2 碼英文字母 + 8 碼數字）
+const extractInvoiceTrackCode = (rawStr = '') => {
+  const normalized = String(rawStr || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, ' ')
+    .trim()
+
+  // 優先比對「2碼英文字母 + 8碼數字」
+  const directMatch = normalized.match(/\b([A-Z]{2})\s*[-·.]?\s*(\d{8})\b/)
+  if (directMatch) {
+    return `${directMatch[1]}${directMatch[2]}`
+  }
+
+  const compact = normalized.replace(/\s+/g, '')
+  const compactMatch = compact.match(/([A-Z]{2}\d{8})/)
+  return compactMatch ? compactMatch[1] : ''
+}
+
+const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
+  if (!srcVideo || !cropCanvas || isRecognizingTrack.value || showTradEditorModal.value) return
+  if (Date.now() - lastTrackScanAt < 1400) return
+  lastTrackScanAt = Date.now()
+
+  const vw = srcVideo.videoWidth
+  const vh = srcVideo.videoHeight
+  if (!vw || !vh) return
+
+  // 裁切畫面中央橫向綠色字軌對準框區域
+  const sx = Math.floor(vw * 0.14)
+  const sy = Math.floor(vh * 0.36)
+  const sw = Math.floor(vw * 0.72)
+  const sh = Math.floor(vh * 0.22)
+
+  const targetW = 640
+  const targetH = Math.max(120, Math.round((sh / sw) * targetW))
+  cropCanvas.width = targetW
+  cropCanvas.height = targetH
+
+  const ctx = cropCanvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return
+
+  ctx.drawImage(srcVideo, sx, sy, sw, sh, 0, 0, targetW, targetH)
+  const imgData = ctx.getImageData(0, 0, targetW, targetH)
+  const data = imgData.data
+
+  // 灰階與對比強化，提升字軌號碼辨識度
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+    const boosted = gray < 135 ? Math.max(0, gray * 0.5) : Math.min(255, gray * 1.2)
+    data[i] = boosted
+    data[i + 1] = boosted
+    data[i + 2] = boosted
+  }
+  ctx.putImageData(imgData, 0, 0)
+
+  isRecognizingTrack.value = true
+  try {
+    if (!ocrWorker) {
+      ocrWorker = await createWorker('eng', 1, { logger: () => {} })
+      await ocrWorker.setParameters({
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+      })
+    }
+
+    const { data: ocrResult } = await ocrWorker.recognize(cropCanvas)
+    const foundTrack = extractInvoiceTrackCode(ocrResult?.text || '')
+
+    if (foundTrack && foundTrack !== scannedTradNumber.value) {
+      scannedTradNumber.value = foundTrack
+      triggerGreenPulse()
+      successToastMsg.value = `已掃描字軌 ${foundTrack.slice(0, 2)} ${foundTrack.slice(2)}`
+      setTimeout(() => {
+        successToastMsg.value = ''
+      }, 1800)
+    }
+  } catch (err) {
+    console.warn('字軌掃描略過：', err)
+  } finally {
+    isRecognizingTrack.value = false
+  }
+}
+
+let pendingLeftQr = null
+let pendingRightItems = []
+let pendingRightAt = 0
+let mergeFlushTimer = null
+let rightFallbackTimer = null
+const RIGHT_QR_HOLD_MS = 6000
+const LEFT_WAIT_RIGHT_MS = 1800
 
 const periods = ['115年07–08月', '115年09–10月', '115年11–12月']
 const currentPeriodIndex = ref(2)
@@ -914,7 +995,6 @@ const isNonProductCode = (name) => {
   return false
 }
 
-// 判斷是否為「實質商品／餐點」（排除折讓、特價折抵、負數金額調整列）
 const isSubstantiveProductItem = (item) => {
   const name = String(item?.item_name || '').trim()
   const amount = Number(item?.amount || 0)
@@ -1638,6 +1718,12 @@ const startNativeQrLoop = () => {
     const viewport = viewportRef.value
     if (!video || !canvas || !viewport || video.readyState < 2 || !video.videoWidth) return
 
+    // 傳統發票模式：掃描中央綠色字軌對準框內的英數字字軌
+    if (invoiceType.value === 'traditional') {
+      await scanTraditionalTrackFromVideo(video, trackCropCanvasRef.value)
+      return
+    }
+
     const vw = video.videoWidth
     const vh = video.videoHeight
 
@@ -1808,12 +1894,21 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => {
-  stopCameraScanner()
+onBeforeUnmount(async () => {
+  await stopCameraScanner()
+  if (ocrWorker) {
+    try {
+      await ocrWorker.terminate()
+    } catch {
+      // 忽略清理例外
+    }
+    ocrWorker = null
+  }
 })
 
 const openScanTab = async () => {
   lastExtractedInvoice.value = null
+  scannedTradNumber.value = ''
   scanError.value = false
   duplicateAlertMsg.value = ''
   successToastMsg.value = ''
@@ -1923,7 +2018,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；系統會自動區分實質商品與折扣列。\n2. 傳統發票：無結構化商品 QR Code，請選擇期別並點擊「編輯發票明細並儲存」，補填金額與商品明細。')
+  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；系統會自動區分實質商品與折扣列。\n2. 傳統發票：將字軌號碼對準中央綠色框可自動辨識，或點選「編輯發票明細並儲存」輸入期別、日期、金額、商家與商品明細。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
@@ -2924,7 +3019,7 @@ const handleLogout = async () => {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  height: 340px;
+  height: 360px;
   position: relative;
   overflow: hidden;
   box-sizing: border-box;
@@ -3014,17 +3109,32 @@ const handleLogout = async () => {
 }
 
 .focus-frame.traditional-track-frame {
-  width: 250px;
-  height: 92px;
+  width: 236px;
+  height: 76px;
+  border: 2.5px solid #22c55e;
+  border-radius: 6px;
+  background-color: rgba(34, 197, 94, 0.14);
 }
 
-.trad-frame-guide-label {
-  background-color: rgba(0, 0, 0, 0.62);
-  color: #fde68a;
-  font-size: 0.78rem;
-  padding: 0.3rem 0.65rem;
-  border-radius: 8px;
-  text-align: center;
+.focus-frame.traditional-track-frame .corner {
+  display: none;
+}
+
+.trad-green-target-box {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.5rem;
+}
+
+.trad-target-text {
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 0.92rem;
+  letter-spacing: 1px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
 }
 
 .corner {
@@ -3242,120 +3352,103 @@ input:checked + .slider:before { transform: translateX(20px); }
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
-/* 傳統發票底部面板樣式 */
-.trad-official-panel {
+/* 對齊右邊官方傳統發票白底面板 */
+.trad-clean-panel {
   width: 100%;
-  max-width: 380px;
+  max-width: 340px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.8rem;
+  gap: 0.85rem;
 }
 
-.trad-period-row {
+.trad-period-strip {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.75rem;
-  font-size: 1.05rem;
+  gap: 0.65rem;
+  font-size: 1rem;
   font-weight: 700;
 }
 
-.trad-period-picker-btn {
+.trad-period-pill {
   background: #ede9fe;
-  color: #4c1d95;
+  color: #4338ca;
   border: none;
-  padding: 0.35rem 0.85rem;
+  padding: 0.3rem 0.8rem;
   border-radius: 999px;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 700;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
 }
 
-.trad-v-sep {
+.trad-strip-sep {
   color: #d1d5db;
 }
 
-.trad-track-preview {
+.trad-strip-code {
   color: #111827;
   letter-spacing: 0.5px;
 }
 
-.trad-quick-track-inputs {
-  display: flex;
-  gap: 0.55rem;
-  width: 100%;
-}
-
-.trad-alpha-input {
-  width: 112px;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  font-size: 0.95rem;
-  text-transform: uppercase;
+.trad-sample-card {
+  width: 162px;
+  background-color: #fff6f8;
+  border: 1px solid #f5d0d8;
+  border-radius: 6px;
+  padding: 0.65rem 0.55rem;
   text-align: center;
-  box-sizing: border-box;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
-.trad-digits-input {
-  flex: 1;
-  padding: 0.55rem 0.85rem;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  font-size: 0.95rem;
-  box-sizing: border-box;
+.trad-sample-top {
+  font-size: 0.68rem;
+  color: #e11d48;
+  font-weight: 600;
 }
 
-.trad-edit-save-btn {
-  width: 100%;
-  background-color: #e0e7ff;
-  color: #312e81;
-  border: 1px solid #c7d2fe;
-  padding: 0.75rem 1rem;
-  border-radius: 999px;
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.trad-edit-save-btn:hover {
-  background-color: #c7d2fe;
-}
-
-.mock-trad-receipt-mini {
-  width: 165px;
-  border: 1px solid #f3d1d8;
-  background-color: #fffafb;
-  border-radius: 8px;
-  padding: 0.55rem;
-  text-align: center;
-}
-
-.mock-trad-title {
+.trad-sample-mid {
   font-size: 0.72rem;
   color: #be123c;
   font-weight: 700;
+  margin-bottom: 0.35rem;
 }
 
-.mock-trad-sub {
-  font-size: 0.68rem;
-  color: #e11d48;
-  margin-bottom: 0.3rem;
-}
-
-.mock-trad-highlight {
-  border: 2px solid #16a34a;
+.trad-sample-code-box {
+  border: 2px solid #22c55e;
   background-color: #f0fdf4;
   color: #14532d;
   font-weight: 800;
-  font-size: 0.85rem;
-  padding: 0.2rem 0.4rem;
-  border-radius: 4px;
+  font-size: 0.86rem;
+  padding: 0.25rem 0.35rem;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+
+.trad-sample-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.6rem;
+  color: #e11d48;
+  margin-top: 0.35rem;
+}
+
+.trad-editor-trigger-btn {
+  width: 100%;
+  background-color: #e0e7ff;
+  color: #3730a3;
+  border: none;
+  padding: 0.72rem 1rem;
+  border-radius: 999px;
+  font-size: 0.96rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.trad-editor-trigger-btn:hover {
+  background-color: #c7d2fe;
 }
 
 /* 期別選擇器彈窗 */
