@@ -668,7 +668,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import jsQR from 'jsqr'
-import { createWorker } from 'tesseract.js'
+import { createWorker, PSM } from 'tesseract.js'
 
 const router = useRouter()
 const nickname = ref('使用者')
@@ -702,9 +702,6 @@ let qrPulseTimer = null
 let ocrWorker = null
 const isRecognizingTrack = ref(false)
 let lastTrackScanAt = 0
-
-let candidateTrack = ''
-let candidateTrackHits = 0
 
 let pendingLeftQr = null
 let pendingRightItems = []
@@ -1186,8 +1183,6 @@ const submitTraditionalInvoice = async () => {
   lastExtractedInvoice.value = saved
   showTradEditorModal.value = false
   scannedTradNumber.value = ''
-  candidateTrack = ''
-  candidateTrackHits = 0
 
   successToastMsg.value = `已儲存 ${saved.invoice_number}`
   setTimeout(() => {
@@ -1195,7 +1190,31 @@ const submitTraditionalInvoice = async () => {
   }, 2200)
 }
 
-// 傳統發票字軌正規化與抽取（2 碼英文字母 + 8 碼數字）
+const normalizeAlphaChar = (ch) => {
+  const c = String(ch || '').toUpperCase()
+  if (c === '0' || c === 'Q' || c === 'D') return 'O'
+  if (c === '1' || c === 'I' || c === 'L') return 'I'
+  if (c === '5' || c === 'S') return 'S'
+  if (c === '8' || c === 'B') return 'B'
+  if (c === '2' || c === 'Z') return 'Z'
+  if (c === '6' || c === 'G') return 'G'
+  return /^[A-Z]$/.test(c) ? c : ''
+}
+
+const normalizeDigitChar = (ch) => {
+  const c = String(ch || '').toUpperCase()
+  if (/^\d$/.test(c)) return c
+  if (c === 'O' || c === 'Q' || c === 'D') return '0'
+  if (c === 'I' || c === 'L' || c === '|') return '1'
+  if (c === 'S') return '5'
+  if (c === 'B') return '8'
+  if (c === 'Z') return '2'
+  if (c === 'G') return '6'
+  if (c === 'T') return '7'
+  return ''
+}
+
+// 傳統發票字軌抽取（2 碼英文字母 + 8 碼數字，容忍綠印章與底紋雜訊）
 const extractInvoiceTrackCode = (rawStr = '') => {
   const lines = String(rawStr || '')
     .split(/\r?\n/)
@@ -1203,56 +1222,61 @@ const extractInvoiceTrackCode = (rawStr = '') => {
     .filter(Boolean)
 
   for (const line of lines) {
-    // 排除明顯含日期斜線或統編／電話字樣的行
-    if (/^\d{2,3}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{1,2}/.test(line)) continue
-    if (/統編|TEL|電話|地址|中壢|台北|台中|台南|高雄/i.test(line)) continue
+    // 排除日期斜線、電話、統編、期別行
+    if (/\d{2,3}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{1,2}/.test(line)) continue
+    if (/統編|TEL|電話|地址|月份|收銀機|收執聯|中壢|台北|台中|台南|高雄/i.test(line)) continue
 
-    const compact = line
+    // 先把常見連字號拆開，避免把 11-12 算進去
+    const tokens = line
       .toUpperCase()
-      .replace(/[^A-Z0-9]/g, '')
+      .replace(/11\s*[-–—]\s*12|09\s*[-–—]\s*10|07\s*[-–—]\s*08|05\s*[-–—]\s*06|03\s*[-–—]\s*04|01\s*[-–—]\s*02/g, ' ')
+      .replace(/[^A-Z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean)
 
-    const m = compact.match(/([A-Z0-9]{2})(\d{8})/)
-    if (!m) continue
+    // 情境 A：同一段連續或接近的英數混合（例如 GH74587138 或 GH 74587138）
+    const joined = tokens.join('')
+    const directMatch = joined.match(/([A-Z0-9]{2})([A-Z0-9]{8})/)
+    if (directMatch) {
+      const a1 = normalizeAlphaChar(directMatch[1][0])
+      const a2 = normalizeAlphaChar(directMatch[1][1])
+      const digRaw = directMatch[2].split('').map(normalizeDigitChar).join('')
+      if (a1 && a2 && digRaw.length === 8) {
+        return `${a1}${a2}${digRaw}`
+      }
+    }
 
-    let alpha = m[1]
-    let digits = m[2]
-
-    // 英文軌字元校正（字軌為大寫英文字母，常見誤判為數字 0/1/5/8）
-    alpha = alpha
-      .replace(/0/g, 'O')
-      .replace(/1/g, 'I')
-      .replace(/5/g, 'S')
-      .replace(/8/g, 'B')
-
-    // 數字碼字元校正（常見誤判為英文字母 O/Q/D/I/L/S/B/Z）
-    digits = digits
-      .replace(/[OQD]/g, '0')
-      .replace(/[IL]/g, '1')
-      .replace(/S/g, '5')
-      .replace(/B/g, '8')
-      .replace(/Z/g, '2')
-
-    if (/^[A-Z]{2}$/.test(alpha) && /^\d{8}$/.test(digits)) {
-      return `${alpha}${digits}`
+    // 情境 B：前一個 token 是 2 碼字母（如 GH），後一個是 8 碼數字（如 74587138）
+    for (let i = 0; i < tokens.length - 1; i++) {
+      const tCur = tokens[i]
+      const tNext = tokens[i + 1]
+      if (tCur.length === 2 && tNext.length >= 8) {
+        const a1 = normalizeAlphaChar(tCur[0])
+        const a2 = normalizeAlphaChar(tCur[1])
+        const dig8 = tNext.slice(0, 8).split('').map(normalizeDigitChar).join('')
+        if (a1 && a2 && dig8.length === 8) {
+          return `${a1}${a2}${dig8}`
+        }
+      }
     }
   }
 
   return ''
 }
 
-const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 135) => {
+// 針對綠色印章＋發票字軌做預處理：綠色章在 G 通道偏高，深色字在 R/G/B 都低
+const buildTrackCanvas = (srcVideo, cropCanvas, mode = 'green_suppress') => {
   const vw = srcVideo.videoWidth
   const vh = srcVideo.videoHeight
   if (!vw || !vh || !cropCanvas) return null
 
-  // 聚焦在綠色框所在中央字軌帶，避開上下期別與地址文字
   const sx = Math.floor(vw * 0.14)
   const sy = Math.floor(vh * 0.34)
   const sw = Math.floor(vw * 0.72)
   const sh = Math.floor(vh * 0.22)
 
-  const targetW = 1100
-  const targetH = Math.max(200, Math.round((sh / sw) * targetW))
+  const targetW = 1000
+  const targetH = Math.max(180, Math.round((sh / sw) * targetW))
   cropCanvas.width = targetW
   cropCanvas.height = targetH
 
@@ -1267,11 +1291,29 @@ const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 135) => {
     const r = data[i]
     const g = data[i + 1]
     const b = data[i + 2]
-    const minChannel = Math.min(r, g, b)
-    const bw = minChannel < threshold ? 0 : 255
-    data[i] = bw
-    data[i + 1] = bw
-    data[i + 2] = bw
+
+    if (mode === 'green_suppress') {
+      // 綠章區域 g 明顯高於 r、b，將其推向白色；深色字軌 r,g,b 皆低
+      const isGreenSeal = g - Math.max(r, b) > 12 && r > 90
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b
+      const val = isGreenSeal ? 255 : lum < 128 ? 0 : 255
+      data[i] = val
+      data[i + 1] = val
+      data[i + 2] = val
+    } else if (mode === 'contrast_gray') {
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b
+      const stretched = Math.max(0, Math.min(255, (lum - 95) * 1.9))
+      const val = stretched < 115 ? 0 : 255
+      data[i] = val
+      data[i + 1] = val
+      data[i + 2] = val
+    } else {
+      const minCh = Math.min(r, g, b)
+      const val = minCh < 135 ? 0 : 255
+      data[i] = val
+      data[i + 1] = val
+      data[i + 2] = val
+    }
   }
   ctx.putImageData(imgData, 0, 0)
   return cropCanvas
@@ -1279,7 +1321,7 @@ const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 135) => {
 
 const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
   if (!srcVideo || !cropCanvas || isRecognizingTrack.value || showTradEditorModal.value) return
-  if (Date.now() - lastTrackScanAt < 650) return
+  if (Date.now() - lastTrackScanAt < 500) return
   lastTrackScanAt = Date.now()
 
   isRecognizingTrack.value = true
@@ -1287,37 +1329,28 @@ const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
     if (!ocrWorker) {
       ocrWorker = await createWorker('eng', 1, { logger: () => {} })
       await ocrWorker.setParameters({
+        tessedit_pageseg_mode: PSM.SINGLE_LINE,
         tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '
       })
     }
 
-    const thresholds = [125, 155, 180]
-    for (const th of thresholds) {
-      const processed = buildBinarizedCanvas(srcVideo, cropCanvas, th)
+    const modes = ['green_suppress', 'contrast_gray', 'min_channel']
+    for (const mode of modes) {
+      const processed = buildTrackCanvas(srcVideo, cropCanvas, mode)
       if (!processed) break
 
       const { data: ocrResult } = await ocrWorker.recognize(processed)
       const fullText = ocrResult?.text || ''
       const foundTrack = extractInvoiceTrackCode(fullText)
 
-      if (foundTrack) {
-        if (foundTrack === candidateTrack) {
-          candidateTrackHits += 1
-        } else {
-          candidateTrack = foundTrack
-          candidateTrackHits = 1
-        }
-
-        // 同一字軌連續命中 2 次才鎖定，避免單幀誤判跳動
-        if (candidateTrackHits >= 2 && foundTrack !== scannedTradNumber.value) {
-          scannedTradNumber.value = foundTrack
-          applyScannedTrackToForm(foundTrack)
-          triggerGreenPulse()
-          successToastMsg.value = `已辨識字軌 ${foundTrack.slice(0, 2)} ${foundTrack.slice(2)}`
-          setTimeout(() => {
-            successToastMsg.value = ''
-          }, 1800)
-        }
+      if (foundTrack && foundTrack !== scannedTradNumber.value) {
+        scannedTradNumber.value = foundTrack
+        applyScannedTrackToForm(foundTrack)
+        triggerGreenPulse()
+        successToastMsg.value = `已辨識字軌 ${foundTrack.slice(0, 2)} ${foundTrack.slice(2)}`
+        setTimeout(() => {
+          successToastMsg.value = ''
+        }, 1800)
         break
       }
     }
@@ -1951,8 +1984,6 @@ onBeforeUnmount(async () => {
 const openScanTab = async () => {
   lastExtractedInvoice.value = null
   scannedTradNumber.value = ''
-  candidateTrack = ''
-  candidateTrackHits = 0
   scanError.value = false
   duplicateAlertMsg.value = ''
   successToastMsg.value = ''
