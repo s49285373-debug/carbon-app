@@ -344,7 +344,6 @@
 
             <template v-else>
               <div class="trad-clean-panel">
-                <!-- 靜態範例示意卡（非按鈕，僅供視覺參考） -->
                 <div class="trad-sample-card" aria-hidden="true">
                   <div class="trad-sample-top">中華民國115年09-10月</div>
                   <div class="trad-sample-mid">收銀機統一發票（收執聯）</div>
@@ -465,7 +464,7 @@
             <input
               type="text"
               v-model="tradEditorForm.purchase_date"
-              placeholder="例如：2026/09/15 或 115/09/15"
+              placeholder="例如：2026/11/07 或 115/11/07"
               class="official-control official-manual-date"
             />
           </div>
@@ -1269,7 +1268,6 @@ const submitTraditionalInvoice = async () => {
   }, 2200)
 }
 
-// 任何傳統發票的 2 碼英文字母 + 8 碼數字字軌皆可辨識
 const extractInvoiceTrackCode = (rawStr = '') => {
   const cleaned = String(rawStr || '')
     .toUpperCase()
@@ -1284,18 +1282,18 @@ const extractInvoiceTrackCode = (rawStr = '') => {
   return `${match[1]}${match[2]}`
 }
 
-const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 125) => {
+const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 135) => {
   const vw = srcVideo.videoWidth
   const vh = srcVideo.videoHeight
   if (!vw || !vh || !cropCanvas) return null
 
-  const sx = Math.floor(vw * 0.08)
-  const sy = Math.floor(vh * 0.25)
-  const sw = Math.floor(vw * 0.84)
-  const sh = Math.floor(vh * 0.42)
+  const sx = Math.floor(vw * 0.06)
+  const sy = Math.floor(vh * 0.20)
+  const sw = Math.floor(vw * 0.88)
+  const sh = Math.floor(vh * 0.48)
 
-  const targetW = 800
-  const targetH = Math.max(180, Math.round((sh / sw) * targetW))
+  const targetW = 1000
+  const targetH = Math.max(220, Math.round((sh / sw) * targetW))
   cropCanvas.width = targetW
   cropCanvas.height = targetH
 
@@ -1307,8 +1305,11 @@ const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 125) => {
   const data = imgData.data
 
   for (let i = 0; i < data.length; i += 4) {
-    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-    const bw = gray < threshold ? 0 : 255
+    const r = data[i]
+    const g = data[i + 1]
+    const b = data[i + 2]
+    const minChannel = Math.min(r, g, b)
+    const bw = minChannel < threshold ? 0 : 255
     data[i] = bw
     data[i + 1] = bw
     data[i + 2] = bw
@@ -1319,7 +1320,7 @@ const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 125) => {
 
 const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
   if (!srcVideo || !cropCanvas || isRecognizingTrack.value || showTradEditorModal.value) return
-  if (Date.now() - lastTrackScanAt < 1200) return
+  if (Date.now() - lastTrackScanAt < 850) return
   lastTrackScanAt = Date.now()
 
   isRecognizingTrack.value = true
@@ -1327,11 +1328,12 @@ const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
     if (!ocrWorker) {
       ocrWorker = await createWorker('eng', 1, { logger: () => {} })
       await ocrWorker.setParameters({
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '
       })
     }
 
-    for (const th of [95, 130, 165]) {
+    const thresholds = [110, 145, 175]
+    for (const th of thresholds) {
       const processed = buildBinarizedCanvas(srcVideo, cropCanvas, th)
       if (!processed) break
 
@@ -1340,15 +1342,10 @@ const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
       const foundTrack = extractInvoiceTrackCode(fullText)
 
       if (foundTrack) {
-        if (foundTrack === candidateTrack) {
-          candidateTrackHits += 1
-        } else {
+        if (foundTrack !== scannedTradNumber.value) {
+          scannedTradNumber.value = foundTrack
           candidateTrack = foundTrack
           candidateTrackHits = 1
-        }
-
-        if (candidateTrackHits >= 2 && foundTrack !== scannedTradNumber.value) {
-          scannedTradNumber.value = foundTrack
           applyScannedTrackToForm(foundTrack)
           triggerGreenPulse()
           successToastMsg.value = `已辨識字軌 ${foundTrack.slice(0, 2)} ${foundTrack.slice(2)}`
