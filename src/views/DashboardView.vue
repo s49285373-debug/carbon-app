@@ -46,7 +46,7 @@
                 <div class="task-icon green-bg">📷</div>
                 <div>
                   <h4>掃描電子發票 QR Code</h4>
-                  <p>同時或接續掃描左右 QR Code，擷取完整商品明細</p>
+                  <p>同時或接續掃描左右 QR Code，擷取發票與商品明細</p>
                 </div>
               </div>
               <button class="action-plus-btn" @click="openScanTab">+</button>
@@ -355,7 +355,7 @@
     <div v-if="selectedInvoiceDetail" class="manual-modal-overlay" @click.self="selectedInvoiceDetail = null">
       <div class="manual-modal-card receipt-detail-modal">
         <div class="detail-top-header">
-          <span class="detail-period-badge">{{ periods[currentPeriodIndex] }}</span>
+          <span class="detail-period-badge">{{ formatRocPeriodBadge(selectedInvoiceDetail.purchase_date) }}</span>
           <h4 class="detail-invoice-no">{{ selectedInvoiceDetail.invoice_number }}</h4>
           <p class="detail-date-line">{{ selectedInvoiceDetail.purchase_date }}</p>
         </div>
@@ -385,6 +385,10 @@
             <span class="detail-item-name">{{ item.item_name }}</span>
             <span class="detail-item-qty">x{{ item.quantity }}</span>
             <span class="detail-item-amt">{{ item.amount }}</span>
+          </div>
+          <div v-if="Number(selectedInvoiceDetail.unmatched_diff || 0) > 0" class="detail-diff-row">
+            <span>其他／未列明細金額</span>
+            <span>+{{ Number(selectedInvoiceDetail.unmatched_diff).toLocaleString() }}</span>
           </div>
         </div>
         <p v-else class="fallback-detail-note">
@@ -499,6 +503,18 @@ const normalizeDateOnly = (rawVal) => {
   return str.slice(0, 10).replaceAll('-', '/')
 }
 
+const formatRocPeriodBadge = (dateStr) => {
+  const match = String(dateStr || '').match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)
+  if (!match) return periods[currentPeriodIndex.value]
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const rocYear = year - 1911
+  const evenEnd = month % 2 === 0 ? month : month + 1
+  const oddStart = evenEnd - 1
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${rocYear}年${pad(oddStart)}–${pad(evenEnd)}月`
+}
+
 const buildSummaryTitle = (items = [], merchantName = '') => {
   if (Array.isArray(items) && items.length > 1) {
     return `${items[0].item_name} 等 ${items.length} 項`
@@ -564,7 +580,7 @@ const normalizeItemRow = (item) => {
 const isValidParsedItem = (item) => {
   const name = String(item?.item_name || '').trim()
   if (isNonProductCode(name)) return false
-  return Number.isFinite(Number(item?.amount)) && Number(item?.amount) !== 0
+  return Number.isFinite(Number(item?.amount)) && Number(item?.amount) !== 0 && Math.abs(Number(item?.amount)) < 1000000
 }
 
 const mergeUniqueItems = (baseItems = [], extraItems = []) => {
@@ -580,6 +596,40 @@ const mergeUniqueItems = (baseItems = [], extraItems = []) => {
     }
   }
   return merged
+}
+
+const reconcileInvoiceAmounts = (items = [], qrTotalAmount = 0) => {
+  const cleanItems = mergeUniqueItems(Array.isArray(items) ? items : [], [])
+  const itemsSum = Number(
+    cleanItems.reduce((acc, it) => acc + Number(it.amount || 0), 0).toFixed(2)
+  )
+
+  const totalAmount =
+    Number(qrTotalAmount) > 0 ? Number(qrTotalAmount) : itemsSum
+
+  const diff = Number((totalAmount - itemsSum).toFixed(2))
+
+  // 若已有品項，且發票總金額低於品項加總（常見於未列為獨立列的折讓／特價），補上一筆折讓列對齊
+  if (cleanItems.length > 0 && Number(qrTotalAmount) > 0 && diff < 0) {
+    return {
+      items: mergeUniqueItems(cleanItems, [
+        {
+          item_name: '折扣／折讓調整',
+          quantity: 1,
+          unit_price: diff,
+          amount: diff
+        }
+      ]),
+      totalAmount,
+      unmatchedDiff: 0
+    }
+  }
+
+  return {
+    items: cleanItems,
+    totalAmount,
+    unmatchedDiff: diff > 0 ? diff : 0
+  }
 }
 
 const loadUserSession = () => {
@@ -615,14 +665,18 @@ const syncInvoicesFromCloud = async () => {
     const result = await res.json()
     if (result?.status === 'success' && Array.isArray(result.data)) {
       invoiceList.value = result.data.map((inv) => {
-        const items = mergeUniqueItems(Array.isArray(inv.items) ? inv.items : [], [])
         const formattedDate = normalizeDateOnly(inv.purchase_date)
+        const reconciled = reconcileInvoiceAmounts(
+          Array.isArray(inv.items) ? inv.items : [],
+          Number(inv.total_amount || 0)
+        )
         return {
           ...inv,
           purchase_date: formattedDate,
-          total_amount: Number(inv.total_amount || 0),
-          summary_title: buildSummaryTitle(items, inv.merchant_name),
-          items
+          total_amount: reconciled.totalAmount,
+          unmatched_diff: reconciled.unmatchedDiff,
+          summary_title: buildSummaryTitle(reconciled.items, inv.merchant_name),
+          items: reconciled.items
         }
       })
     }
@@ -747,41 +801,69 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
       .filter(Boolean)
   }
 
-  const isValidName = (name) => !isNonProductCode(name)
-
-  const parseItemTriplets = (tokens) => {
+  const parseReceiptItems = (tokens = []) => {
     const parsedItems = []
     let i = 0
-    while (i + 2 < tokens.length) {
-      const name = decodeTextSafely(tokens[i] || '').trim()
-      const qtyRaw = String(tokens[i + 1] || '').trim().replaceAll(',', '')
-      const priceRaw = String(tokens[i + 2] || '').trim().replaceAll(',', '')
-      const qty = Number(qtyRaw)
-      const priceOrAmt = Number(priceRaw)
 
+    while (i < tokens.length) {
+      const t0 = decodeTextSafely(tokens[i] || '').trim()
+      const t1 = String(tokens[i + 1] || '').trim().replaceAll(',', '')
+      const t2 = String(tokens[i + 2] || '').trim().replaceAll(',', '')
+
+      // 1. 三元組：品名 + 數量 + 單價／小計（支援負數折扣單價／金額）
       if (
-        isValidName(name) &&
-        /^-?\d+(\.\d+)?$/.test(qtyRaw) &&
-        /^-?\d+(\.\d+)?$/.test(priceRaw) &&
-        Number.isFinite(qty) &&
-        Number.isFinite(priceOrAmt) &&
-        qty > 0 &&
-        qty < 10000 &&
-        priceOrAmt !== 0 &&
-        Math.abs(priceOrAmt) < 1000000
+        i + 2 < tokens.length &&
+        !isNonProductCode(t0) &&
+        /^-?\d+(\.\d+)?$/.test(t1) &&
+        /^-?\d+(\.\d+)?$/.test(t2)
       ) {
-        const cleanQty = Number(qty.toFixed(2))
-        const amount = Number((cleanQty * priceOrAmt).toFixed(2))
-        parsedItems.push({
-          item_name: name,
-          quantity: cleanQty,
-          unit_price: priceOrAmt,
-          amount
-        })
-        i += 3
-      } else {
-        i += 1
+        const qty = Number(t1)
+        const priceOrAmt = Number(t2)
+        if (
+          Number.isFinite(qty) &&
+          Number.isFinite(priceOrAmt) &&
+          qty > 0 &&
+          qty < 10000 &&
+          priceOrAmt !== 0 &&
+          Math.abs(priceOrAmt) < 1000000
+        ) {
+          const cleanQty = Number(qty.toFixed(2))
+          const amount =
+            priceOrAmt < 0
+              ? Number(priceOrAmt.toFixed(2))
+              : Number((cleanQty * priceOrAmt).toFixed(2))
+
+          parsedItems.push({
+            item_name: t0,
+            quantity: cleanQty,
+            unit_price: priceOrAmt,
+            amount
+          })
+          i += 3
+          continue
+        }
       }
+
+      // 2. 折讓雙欄格式：品名 + 負數折讓金額
+      if (
+        i + 1 < tokens.length &&
+        !isNonProductCode(t0) &&
+        /^-\d+(\.\d+)?$/.test(t1)
+      ) {
+        const negAmt = Number(t1)
+        if (Number.isFinite(negAmt) && negAmt < 0 && Math.abs(negAmt) < 1000000) {
+          parsedItems.push({
+            item_name: t0,
+            quantity: 1,
+            unit_price: Number(negAmt.toFixed(2)),
+            amount: Number(negAmt.toFixed(2))
+          })
+          i += 2
+          continue
+        }
+      }
+
+      i += 1
     }
 
     return mergeUniqueItems([], parsedItems)
@@ -798,7 +880,7 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
     ) {
       startIdx = 2
     }
-    result.items = parseItemTriplets(rawTokens.slice(startIdx))
+    result.items = parseReceiptItems(rawTokens.slice(startIdx))
     return result
   }
 
@@ -860,7 +942,7 @@ const parseTaiwanInvoiceQr = (rawPayload) => {
           parts.shift()
         }
       }
-      result.items = parseItemTriplets(parts)
+      result.items = parseReceiptItems(parts)
     }
   }
 
@@ -1440,20 +1522,18 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
 
   const qrItems = mergeUniqueItems(Array.isArray(inputMeta.items) ? inputMeta.items : [], [])
   const backendItems = mergeUniqueItems(Array.isArray(backendData.items) ? backendData.items : [], [])
-  const items = qrItems.length > 0 ? qrItems : backendItems
+  const rawItems = qrItems.length > 0 ? qrItems : backendItems
 
-  const rawItemsSum = Number(
-    items.reduce((s, it) => s + Number(it.amount || 0), 0).toFixed(2)
-  )
-
-  const totalAmount =
+  const rawTotalAmount =
     Number(inputMeta.totalAmount) > 0
       ? Number(inputMeta.totalAmount)
       : Number(backendData.total_amount) > 0
       ? Number(backendData.total_amount)
-      : rawItemsSum !== 0
-      ? rawItemsSum
       : 0
+
+  const reconciled = reconcileInvoiceAmounts(rawItems, rawTotalAmount)
+  const items = reconciled.items
+  const totalAmount = reconciled.totalAmount
 
   const calcLabel =
     items.length > 0
@@ -1473,6 +1553,7 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
     random_code: inputMeta.randomCode || backendData.random_code || '',
     summary_title: summaryTitle,
     total_amount: totalAmount,
+    unmatched_diff: reconciled.unmatchedDiff,
     carbon_kg: 0,
     hidden_carbon_cost: 0,
     calc_label: calcLabel,
@@ -2214,6 +2295,16 @@ const handleLogout = async () => {
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.detail-diff-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: #6b7280;
+  padding-top: 0.25rem;
+  border-top: 1px dashed #e5e7eb;
 }
 
 .detail-total-bar {
