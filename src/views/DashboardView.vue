@@ -248,10 +248,10 @@
                   <p v-else class="hint-text">正在啟動相機，請稍候...</p>
                 </div>
 
-                <!-- 傳統發票：中央綠色字軌對準框（對齊右邊官方畫面） -->
+                <!-- 傳統發票：中央綠色字軌對準框（未辨識前保持乾淨不遮字，辨識到後顯示字軌） -->
                 <div v-else-if="invoiceType === 'traditional'" class="trad-green-target-box">
-                  <span class="trad-target-text">
-                    {{ scannedTradFormatted || (isRecognizingTrack ? '辨識字軌中...' : '將字軌對準框內') }}
+                  <span v-if="scannedTradFormatted" class="trad-target-text">
+                    {{ scannedTradFormatted }}
                   </span>
                 </div>
               </div>
@@ -270,7 +270,7 @@
             </div>
           </div>
 
-          <!-- 底部白底卡片：對齊右邊官方版面結構 -->
+          <!-- 底部白底卡片 -->
           <div class="scanner-bottom-sheet">
             <div class="invoice-type-tabs">
               <button
@@ -336,7 +336,7 @@
               </p>
             </template>
 
-            <!-- 傳統發票：對齊右邊官方乾淨白底排版＋支援掃描字軌與編輯明細 -->
+            <!-- 傳統發票面板 -->
             <template v-else>
               <div class="trad-clean-panel">
                 <div class="trad-period-strip">
@@ -374,7 +374,7 @@
                 </button>
 
                 <p class="scanner-footer-note">
-                  傳統發票無商品 QR Code，對準字軌自動辨識或點擊「編輯發票明細並儲存」，填寫日期、金額、商家與商品明細。
+                  傳統發票無商品 QR Code，將字軌對準綠色框自動辨識帶入，或點擊「編輯發票明細並儲存」填寫日期、金額、商家與商品明細。
                 </p>
               </div>
             </template>
@@ -440,46 +440,51 @@
       </div>
     </div>
 
-    <!-- 傳統發票【編輯發票明細並儲存】表單彈窗 -->
+    <!-- 傳統發票【編輯】表單彈窗（對齊官方紫色頂欄與乾淨白底卡片排版，掃描到字軌自動帶入） -->
     <div v-if="showTradEditorModal" class="manual-modal-overlay" @click.self="showTradEditorModal = false">
-      <div class="manual-modal-card trad-editor-modal">
-        <div class="trad-editor-topbar">
-          <button type="button" class="editor-back-btn" @click="showTradEditorModal = false">&lt; 返回</button>
-          <strong>編輯傳統發票</strong>
-          <span class="editor-spacer"></span>
+      <div class="manual-modal-card official-style-editor">
+        <div class="official-editor-header">
+          <button type="button" class="official-back-btn" @click="showTradEditorModal = false">&lt; 返回</button>
+          <span class="official-editor-title">編輯</span>
+          <span class="official-header-spacer"></span>
         </div>
 
-        <div class="editor-form-body">
-          <div class="editor-field">
-            <label>發票類型 <span class="req-star">*</span></label>
-            <input type="text" value="傳統發票" readonly class="editor-input readonly-input" />
+        <div class="official-editor-body">
+          <!-- 1. 發票類型 * -->
+          <div class="official-field">
+            <label class="official-label">發票類型 <span class="official-req">*</span></label>
+            <div class="official-select-wrap">
+              <select v-model="tradEditorForm.invoice_type_label" class="official-control official-select">
+                <option value="傳統發票">傳統發票</option>
+              </select>
+              <span class="official-select-arrow">⌄</span>
+            </div>
           </div>
 
-          <div class="editor-field">
-            <label>發票期別</label>
-            <select v-model="tradEditorForm.period" class="editor-input">
-              <option v-for="p in tradPeriodOptions" :key="p" :value="p">{{ p }}</option>
-            </select>
-          </div>
-
-          <div class="editor-field">
-            <label>發票日期 <span class="req-star">*</span></label>
+          <!-- 2. 發票日期 * -->
+          <div class="official-field">
+            <label class="official-label">發票日期 <span class="official-req">*</span></label>
             <input
               type="date"
               v-model="tradEditorForm.purchase_date"
-              class="editor-input"
+              placeholder="請輸入發票日期"
+              class="official-control"
             />
           </div>
 
-          <div class="editor-field">
-            <label>發票號碼 <span class="req-star">*</span></label>
-            <div class="editor-invoice-num-row">
+          <!-- 3. 發票號碼 *（辨識到自動帶入，無需手動輸入） -->
+          <div class="official-field">
+            <label class="official-label">
+              <span>發票號碼 <span class="official-req">*</span></span>
+              <span v-if="scannedTradNumber" class="official-scanned-badge">已自動掃描帶入</span>
+            </label>
+            <div class="official-code-split">
               <input
                 type="text"
                 v-model="tradEditorForm.track_alpha"
                 maxlength="2"
                 placeholder="EF"
-                class="editor-input alpha-box"
+                class="official-control official-alpha"
               />
               <input
                 type="text"
@@ -487,113 +492,84 @@
                 maxlength="8"
                 inputmode="numeric"
                 placeholder="54403818"
-                class="editor-input digits-box"
+                class="official-control official-digits"
               />
             </div>
           </div>
 
-          <div class="editor-field">
-            <label>發票金額 <span class="req-star">*</span></label>
+          <!-- 4. 發票金額 * -->
+          <div class="official-field">
+            <label class="official-label">發票金額 <span class="official-req">*</span></label>
             <input
               type="number"
               min="0"
               v-model.number="tradEditorForm.total_amount"
               placeholder="0"
-              class="editor-input"
+              class="official-control"
             />
-            <span v-if="tradItemsAmountSum > 0" class="field-helper-hint">
-              已輸入商品明細小計：TWD {{ tradItemsAmountSum.toLocaleString() }}
-            </span>
           </div>
 
-          <div class="editor-field">
-            <label>
-              商家名稱
-              <span class="char-counter">{{ (tradEditorForm.merchant_name || '').length }}/20</span>
+          <!-- 5. 商家名稱 0/20 -->
+          <div class="official-field">
+            <label class="official-label">
+              <span>商家名稱 <span class="official-count">{{ (tradEditorForm.merchant_name || '').length }}/20</span></span>
             </label>
             <input
               type="text"
               maxlength="20"
               v-model="tradEditorForm.merchant_name"
               placeholder="請輸入商家名稱"
-              class="editor-input"
+              class="official-control"
             />
           </div>
 
-          <div class="editor-field">
-            <label>消費類別</label>
-            <select v-model="tradEditorForm.category_name" class="editor-input">
-              <option value="一般消費">一般消費</option>
-              <option value="食品飲料">食品飲料</option>
-              <option value="外食餐點">外食餐點</option>
-              <option value="日用品">日用品</option>
-              <option value="文具書報">文具書報</option>
-            </select>
-          </div>
-
-          <div class="editor-items-section">
-            <div class="editor-items-header">
-              <strong>商品明細</strong>
-              <span class="items-sub-note">選填，可逐筆加入購買品項</span>
-            </div>
+          <!-- 6. 商品明細 + ⊕ 新增商品明細 -->
+          <div class="official-items-block">
+            <div class="official-items-title">商品明細</div>
 
             <div
               v-for="(item, idx) in tradEditorForm.items"
               :key="idx"
-              class="trad-item-card"
+              class="official-item-box"
             >
-              <div class="trad-item-card-top">
-                <span>第 {{ idx + 1 }} 項商品</span>
-                <button
-                  type="button"
-                  class="remove-item-link"
-                  @click="removeTradItemRow(idx)"
-                >
-                  移除
-                </button>
+              <div class="official-item-top">
+                <span>品項 {{ idx + 1 }}</span>
+                <button type="button" class="official-item-del" @click="removeTradItemRow(idx)">移除</button>
               </div>
               <input
                 type="text"
                 v-model="item.item_name"
-                placeholder="商品／餐點名稱"
-                class="editor-input mb-2"
+                placeholder="請輸入商品名稱"
+                class="official-control official-item-name"
               />
-              <div class="trad-item-num-row">
-                <div class="mini-field">
-                  <small>數量</small>
-                  <input
-                    type="number"
-                    min="1"
-                    v-model.number="item.quantity"
-                    class="editor-input"
-                  />
-                </div>
-                <div class="mini-field">
-                  <small>金額 (TWD)</small>
-                  <input
-                    type="number"
-                    min="0"
-                    v-model.number="item.amount"
-                    placeholder="0"
-                    class="editor-input"
-                  />
-                </div>
+              <div class="official-item-grid">
+                <input
+                  type="number"
+                  min="1"
+                  v-model.number="item.quantity"
+                  placeholder="數量"
+                  class="official-control"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  v-model.number="item.amount"
+                  placeholder="金額"
+                  class="official-control"
+                />
               </div>
             </div>
 
-            <button
-              type="button"
-              class="add-trad-item-pill-btn"
-              @click="addTradItemRow"
-            >
-              ＋ 新增商品明細
+            <button type="button" class="official-add-item-btn" @click="addTradItemRow">
+              <span class="official-plus-circle">+</span>
+              <span>新增商品明細</span>
             </button>
           </div>
         </div>
 
-        <div class="editor-footer-actions">
-          <button type="button" class="delete-modal-btn" @click="showTradEditorModal = false">取消</button>
-          <button type="button" class="primary-action-btn" @click="submitTraditionalInvoice">儲存發票</button>
+        <div class="official-editor-footer">
+          <button type="button" class="official-cancel-btn" @click="showTradEditorModal = false">取消</button>
+          <button type="button" class="official-save-btn" @click="submitTraditionalInvoice">儲存</button>
         </div>
       </div>
     </div>
@@ -623,7 +599,7 @@
           </p>
           <p>
             <strong>登錄方式：</strong>
-            {{ selectedInvoiceDetail.source_type === 'traditional' ? '傳統發票（手動登錄）' : '電子發票' }}
+            {{ selectedInvoiceDetail.source_type === 'traditional' ? '傳統發票' : '電子發票' }}
           </p>
         </div>
 
@@ -726,7 +702,7 @@ const successToastMsg = ref('')
 let scanLoopTimer = null
 let qrPulseTimer = null
 let ocrWorker = null
-let isRecognizingTrack = ref(false)
+const isRecognizingTrack = ref(false)
 let lastTrackScanAt = 0
 
 // 傳統發票字軌掃描與表單狀態
@@ -752,6 +728,7 @@ const showPeriodPickerModal = ref(false)
 const showTradEditorModal = ref(false)
 
 const tradEditorForm = ref({
+  invoice_type_label: '傳統發票',
   period: '115年09-10月',
   purchase_date: new Date().toISOString().slice(0, 10),
   track_alpha: '',
@@ -762,23 +739,24 @@ const tradEditorForm = ref({
   items: []
 })
 
-const tradItemsAmountSum = computed(() => {
-  return (tradEditorForm.value.items || []).reduce(
-    (sum, it) => sum + Math.max(0, Number(it.amount || 0)),
-    0
-  )
-})
+const applyScannedTrackToForm = (fullTrack = '') => {
+  const clean = String(fullTrack || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const match = clean.match(/^([A-Z]{2})(\d{8})$/)
+  if (!match) return
+  tradEditorForm.value.track_alpha = match[1]
+  tradEditorForm.value.track_digits = match[2]
+}
 
 const openTradEditorModal = () => {
   const clean = String(scannedTradNumber.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
-  const alpha = clean.slice(0, 2)
-  const digits = clean.slice(2, 10)
+  const match = clean.match(/^([A-Z]{2})(\d{8})$/)
 
   tradEditorForm.value = {
+    invoice_type_label: '傳統發票',
     period: selectedTradPeriod.value,
     purchase_date: new Date().toISOString().slice(0, 10),
-    track_alpha: alpha,
-    track_digits: digits,
+    track_alpha: match ? match[1] : '',
+    track_digits: match ? match[2] : '',
     total_amount: 0,
     merchant_name: '',
     category_name: '一般消費',
@@ -881,60 +859,62 @@ const submitTraditionalInvoice = async () => {
   }, 2200)
 }
 
-// 實際掃描中央綠色對準框內的傳統發票字軌（2 碼英文字母 + 8 碼數字）
+// 實際掃描中央綠色對準框內的傳統發票字軌（雙閾值濾除印章底紋＋自動帶入）
 const extractInvoiceTrackCode = (rawStr = '') => {
-  const normalized = String(rawStr || '')
+  const cleaned = String(rawStr || '')
     .toUpperCase()
+    .replace(/[O]/g, '0')
+    .replace(/[I|L]/g, '1')
     .replace(/[^A-Z0-9]/g, ' ')
     .trim()
 
-  // 優先比對「2碼英文字母 + 8碼數字」
-  const directMatch = normalized.match(/\b([A-Z]{2})\s*[-·.]?\s*(\d{8})\b/)
+  const directMatch = cleaned.match(/\b([A-Z]{2})\s*[-·.]?\s*(\d{8})\b/)
   if (directMatch) {
     return `${directMatch[1]}${directMatch[2]}`
   }
 
-  const compact = normalized.replace(/\s+/g, '')
+  const compact = cleaned.replace(/\s+/g, '')
   const compactMatch = compact.match(/([A-Z]{2}\d{8})/)
   return compactMatch ? compactMatch[1] : ''
 }
 
-const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
-  if (!srcVideo || !cropCanvas || isRecognizingTrack.value || showTradEditorModal.value) return
-  if (Date.now() - lastTrackScanAt < 1400) return
-  lastTrackScanAt = Date.now()
-
+const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 120) => {
   const vw = srcVideo.videoWidth
   const vh = srcVideo.videoHeight
-  if (!vw || !vh) return
+  if (!vw || !vh || !cropCanvas) return null
 
-  // 裁切畫面中央橫向綠色字軌對準框區域
-  const sx = Math.floor(vw * 0.14)
-  const sy = Math.floor(vh * 0.36)
-  const sw = Math.floor(vw * 0.72)
-  const sh = Math.floor(vh * 0.22)
+  const sx = Math.floor(vw * 0.12)
+  const sy = Math.floor(vh * 0.35)
+  const sw = Math.floor(vw * 0.76)
+  const sh = Math.floor(vh * 0.24)
 
-  const targetW = 640
-  const targetH = Math.max(120, Math.round((sh / sw) * targetW))
+  const targetW = 720
+  const targetH = Math.max(140, Math.round((sh / sw) * targetW))
   cropCanvas.width = targetW
   cropCanvas.height = targetH
 
   const ctx = cropCanvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return
+  if (!ctx) return null
 
   ctx.drawImage(srcVideo, sx, sy, sw, sh, 0, 0, targetW, targetH)
   const imgData = ctx.getImageData(0, 0, targetW, targetH)
   const data = imgData.data
 
-  // 灰階與對比強化，提升字軌號碼辨識度
   for (let i = 0; i < data.length; i += 4) {
     const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-    const boosted = gray < 135 ? Math.max(0, gray * 0.5) : Math.min(255, gray * 1.2)
-    data[i] = boosted
-    data[i + 1] = boosted
-    data[i + 2] = boosted
+    const bw = gray < threshold ? 0 : 255
+    data[i] = bw
+    data[i + 1] = bw
+    data[i + 2] = bw
   }
   ctx.putImageData(imgData, 0, 0)
+  return cropCanvas
+}
+
+const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
+  if (!srcVideo || !cropCanvas || isRecognizingTrack.value || showTradEditorModal.value) return
+  if (Date.now() - lastTrackScanAt < 1800) return
+  lastTrackScanAt = Date.now()
 
   isRecognizingTrack.value = true
   try {
@@ -945,16 +925,24 @@ const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
       })
     }
 
-    const { data: ocrResult } = await ocrWorker.recognize(cropCanvas)
-    const foundTrack = extractInvoiceTrackCode(ocrResult?.text || '')
+    for (const th of [105, 145]) {
+      const processed = buildBinarizedCanvas(srcVideo, cropCanvas, th)
+      if (!processed) break
+      const { data: ocrResult } = await ocrWorker.recognize(processed)
+      const foundTrack = extractInvoiceTrackCode(ocrResult?.text || '')
 
-    if (foundTrack && foundTrack !== scannedTradNumber.value) {
-      scannedTradNumber.value = foundTrack
-      triggerGreenPulse()
-      successToastMsg.value = `已掃描字軌 ${foundTrack.slice(0, 2)} ${foundTrack.slice(2)}`
-      setTimeout(() => {
-        successToastMsg.value = ''
-      }, 1800)
+      if (foundTrack) {
+        if (foundTrack !== scannedTradNumber.value) {
+          scannedTradNumber.value = foundTrack
+          applyScannedTrackToForm(foundTrack)
+          triggerGreenPulse()
+          successToastMsg.value = `已辨識字軌 ${foundTrack.slice(0, 2)} ${foundTrack.slice(2)}`
+          setTimeout(() => {
+            successToastMsg.value = ''
+          }, 1800)
+        }
+        break
+      }
     }
   } catch (err) {
     console.warn('字軌掃描略過：', err)
@@ -2018,7 +2006,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；系統會自動區分實質商品與折扣列。\n2. 傳統發票：將字軌號碼對準中央綠色框可自動辨識，或點選「編輯發票明細並儲存」輸入期別、日期、金額、商家與商品明細。')
+  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；系統會自動區分實質商品與折扣列。\n2. 傳統發票：將字軌號碼對準中央綠色框可自動辨識並帶入號碼，或點選「編輯發票明細並儲存」輸入日期、金額、商家與商品明細。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
@@ -2306,10 +2294,6 @@ const handleLogout = async () => {
 
 .text-dark {
   color: #1f2937 !important;
-}
-
-.mb-2 {
-  margin-bottom: 0.5rem;
 }
 
 .mb-3 {
@@ -3113,7 +3097,7 @@ const handleLogout = async () => {
   height: 76px;
   border: 2.5px solid #22c55e;
   border-radius: 6px;
-  background-color: rgba(34, 197, 94, 0.14);
+  background-color: rgba(34, 197, 94, 0.1);
 }
 
 .focus-frame.traditional-track-frame .corner {
@@ -3132,9 +3116,11 @@ const handleLogout = async () => {
 .trad-target-text {
   color: #ffffff;
   font-weight: 800;
-  font-size: 0.92rem;
+  font-size: 1rem;
   letter-spacing: 1px;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+  background-color: rgba(22, 163, 74, 0.85);
+  padding: 0.2rem 0.65rem;
+  border-radius: 6px;
 }
 
 .corner {
@@ -3352,7 +3338,6 @@ input:checked + .slider:before { transform: translateX(20px); }
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
-/* 對齊右邊官方傳統發票白底面板 */
 .trad-clean-panel {
   width: 100%;
   max-width: 340px;
@@ -3503,197 +3488,249 @@ input:checked + .slider:before { transform: translateX(20px); }
   font-weight: 900;
 }
 
-/* 傳統發票編輯表單彈窗 */
-.trad-editor-modal {
-  max-width: 440px;
-  max-height: 88vh;
+/* 官方樣式傳統發票編輯彈窗 */
+.official-style-editor {
+  max-width: 420px;
+  max-height: 92vh;
   padding: 0;
+  gap: 0;
+  border-radius: 16px;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  background-color: #ffffff;
 }
 
-.trad-editor-topbar {
-  background-color: #3e2723;
+.official-editor-header {
+  background-color: #7c5dfa;
   color: #ffffff;
-  padding: 0.9rem 1.15rem;
+  height: 54px;
+  padding: 0 1rem;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  font-size: 1.02rem;
+  justify-content: space-between;
 }
 
-.editor-back-btn {
+.official-back-btn {
   background: none;
   border: none;
-  color: #efebe9;
-  font-size: 0.92rem;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 500;
   cursor: pointer;
+  padding: 0.25rem 0.4rem;
 }
 
-.editor-spacer {
-  width: 44px;
+.official-editor-title {
+  font-size: 1.08rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
 
-.editor-form-body {
-  padding: 1.1rem 1.25rem;
+.official-header-spacer {
+  width: 52px;
+}
+
+.official-editor-body {
+  padding: 1.15rem 1.2rem 1rem 1.2rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1.05rem;
 }
 
-.editor-field {
+.official-field {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.45rem;
 }
 
-.editor-field label {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: #1f2937;
+.official-label {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: #111827;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.req-star {
-  color: #dc2626;
+.official-req {
+  color: #ef4444;
+  font-weight: 700;
 }
 
-.char-counter {
+.official-scanned-badge {
   font-size: 0.78rem;
-  font-weight: 500;
-  color: #6b7280;
+  font-weight: 700;
+  color: #059669;
+  background-color: #ecfdf5;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
 }
 
-.editor-input {
+.official-count {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #111827;
+  margin-left: 0.25rem;
+}
+
+.official-control {
   width: 100%;
-  padding: 0.65rem 0.85rem;
-  border: 1px solid #d1d5db;
+  height: 48px;
+  padding: 0 0.9rem;
+  border: 1.5px solid #cbd5e1;
   border-radius: 10px;
-  font-size: 0.95rem;
+  font-size: 0.98rem;
   color: #111827;
   background-color: #ffffff;
   box-sizing: border-box;
+  outline: none;
 }
 
-.readonly-input {
-  background-color: #f3f4f6;
-  color: #4b5563;
+.official-control:focus {
+  border-color: #7c5dfa;
 }
 
-.editor-invoice-num-row {
+.official-select-wrap {
+  position: relative;
   display: flex;
-  gap: 0.6rem;
+  align-items: center;
 }
 
-.alpha-box {
-  width: 96px;
-  text-transform: uppercase;
-  text-align: center;
-  font-weight: 700;
+.official-select {
+  appearance: none;
+  padding-right: 2.2rem;
+  font-weight: 500;
 }
 
-.digits-box {
-  flex: 1;
+.official-select-arrow {
+  position: absolute;
+  right: 0.9rem;
+  font-size: 1.1rem;
+  color: #374151;
+  pointer-events: none;
 }
 
-.field-helper-hint {
-  font-size: 0.78rem;
-  color: #059669;
-  font-weight: 600;
-}
-
-.editor-items-section {
-  border-top: 1px solid #e5e7eb;
-  padding-top: 0.85rem;
-  display: flex;
-  flex-direction: column;
+.official-code-split {
+  display: grid;
+  grid-template-columns: 120px 1fr;
   gap: 0.65rem;
 }
 
-.editor-items-header {
+.official-alpha {
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.official-digits {
+  font-weight: 500;
+}
+
+.official-items-block {
+  padding-top: 0.25rem;
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
-.items-sub-note {
-  font-size: 0.75rem;
-  color: #6b7280;
+.official-items-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #111827;
 }
 
-.trad-item-card {
-  background-color: #f9fafb;
+.official-item-box {
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  background-color: #f9fafb;
+  border-radius: 10px;
   padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
 }
 
-.trad-item-card-top {
+.official-item-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: #374151;
-  margin-bottom: 0.45rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #4b5563;
 }
 
-.remove-item-link {
+.official-item-del {
   background: none;
   border: none;
   color: #dc2626;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   cursor: pointer;
 }
 
-.trad-item-num-row {
+.official-item-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.6rem;
 }
 
-.mini-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.mini-field small {
-  font-size: 0.75rem;
-  color: #6b7280;
-}
-
-.add-trad-item-pill-btn {
+.official-add-item-btn {
   width: 100%;
-  background-color: #ffffff;
-  color: #1f2937;
+  height: 48px;
   border: 1.5px solid #9ca3af;
-  padding: 0.68rem 1rem;
   border-radius: 999px;
+  background-color: #ffffff;
+  color: #111827;
+  font-size: 1rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  margin-top: 0.15rem;
+}
+
+.official-plus-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: #111827;
+  color: #ffffff;
   font-size: 0.95rem;
   font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
-.add-trad-item-pill-btn:hover {
-  border-color: #059669;
-  color: #059669;
-  background-color: #ecfdf5;
-}
-
-.editor-footer-actions {
-  padding: 0.85rem 1.25rem;
+.official-editor-footer {
+  padding: 0.8rem 1.2rem;
   border-top: 1px solid #e5e7eb;
   background-color: #ffffff;
   display: flex;
   justify-content: flex-end;
-  gap: 0.75rem;
+  gap: 0.65rem;
+}
+
+.official-cancel-btn {
+  background-color: #f3f4f6;
+  color: #374151;
+  border: none;
+  padding: 0.6rem 1.15rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.official-save-btn {
+  background-color: #7c5dfa;
+  color: #ffffff;
+  border: none;
+  padding: 0.6rem 1.35rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .invoice-guide-illustration {
