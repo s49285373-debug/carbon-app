@@ -5,7 +5,7 @@
     <header class="header" v-if="currentTab === 'home'">
       <div class="title-area">
         <div class="logo-circle">
-          <span>🌱</span>
+          <span>🧾</span>
         </div>
         <span class="user-nickname-tag">{{ nickname }}</span>
         <h1>帳本</h1>
@@ -19,34 +19,34 @@
       <template v-if="currentTab === 'home'">
         <section class="banner-card">
           <div class="banner-content">
-            <h2>🌿 開始記錄您的低碳綠色生活</h2>
-            <p>輕鬆掃描發票，追蹤個人碳足跡與隱形碳成本，讓每筆消費都對地球更友善！</p>
+            <h2>🧾 發票與消費紀錄帳本</h2>
+            <p>快速掃描電子發票 QR Code 或登錄傳統發票字軌，輕鬆管理每筆消費明細與金額。</p>
           </div>
           <div class="banner-stats">
             <div class="mini-stat">
-              <span class="stat-num">{{ totalCarbonSum }}</span>
-              <span class="stat-label">當期總碳排 (kg)</span>
-            </div>
-            <div class="mini-stat">
               <span class="stat-num">{{ invoiceList.length }}</span>
-              <span class="stat-label">已解析發票 (筆)</span>
+              <span class="stat-label">已登錄發票 (筆)</span>
             </div>
             <div class="mini-stat">
-              <span class="stat-num">8.2%</span>
-              <span class="stat-label">較上期減少</span>
+              <span class="stat-num">TWD {{ totalAmountSum.toLocaleString() }}</span>
+              <span class="stat-label">累積消費金額</span>
+            </div>
+            <div class="mini-stat">
+              <span class="stat-num">{{ totalItemsSum }}</span>
+              <span class="stat-label">累積商品品項</span>
             </div>
           </div>
         </section>
 
         <section class="section-group">
-          <h3 class="section-title">✨ 試試這些碳排盤查與低碳任務</h3>
+          <h3 class="section-title">✨ 常用功能</h3>
           <div class="task-list">
             <div class="task-card">
               <div class="task-info">
-                <div class="task-icon green-bg">🧾</div>
+                <div class="task-icon green-bg">📷</div>
                 <div>
-                  <h4>發票載具碳足跡掃描</h4>
-                  <p>即時解析每筆消費的碳排量與隱形碳成本，或登錄傳統發票</p>
+                  <h4>發票掃描與登錄</h4>
+                  <p>掃描電子發票證明聯 QR Code，或對準傳統發票字軌號碼</p>
                 </div>
               </div>
               <button class="action-plus-btn" @click="openScanTab">+</button>
@@ -56,22 +56,11 @@
               <div class="task-info">
                 <div class="task-icon blue-bg">📒</div>
                 <div>
-                  <h4>檢視本期發票存摺明細</h4>
+                  <h4>檢視發票存摺明細</h4>
                   <p>瀏覽所有已擷取的發票品項、金額與來源紀錄</p>
                 </div>
               </div>
               <button class="action-plus-btn" @click="currentTab = 'invoices'">&gt;</button>
-            </div>
-
-            <div class="task-card">
-              <div class="task-info">
-                <div class="task-icon orange-bg">🛒</div>
-                <div>
-                  <h4>消費類別碳排佔比</h4>
-                  <p>檢視食品、日用品與交通的碳排佔比分佈</p>
-                </div>
-              </div>
-              <button class="action-plus-btn" @click="currentTab = 'plan'">+</button>
             </div>
           </div>
         </section>
@@ -103,15 +92,15 @@
             </div>
 
             <div class="period-summary-card">
-              <span class="summary-corner-badge">本期盤查中</span>
+              <span class="summary-corner-badge">本期紀錄</span>
               <div class="summary-subtitle">本期消費總金額</div>
               <div class="summary-main-row">
                 <span class="summary-amount">TWD {{ filteredTotalAmount.toLocaleString() }}</span>
                 <span class="summary-divider">|</span>
                 <span class="summary-count">{{ filteredInvoices.length }} 張</span>
               </div>
-              <div class="summary-carbon-pill">
-                🌱 本期累積碳排 <strong>{{ filteredTotalCarbon }}</strong> kg CO₂e ｜ 隱形碳成本 <strong>{{ filteredHiddenCost }}</strong> 元 ｜ 商品 <strong>{{ filteredTotalItemsCount }}</strong> 項
+              <div class="summary-info-pill">
+                📦 本期共 <strong>{{ filteredTotalItemsCount }}</strong> 項商品明細
               </div>
             </div>
 
@@ -149,7 +138,7 @@
                 </div>
 
                 <div class="record-bottom-tags">
-                  <span class="tag-carbon">🌿 {{ inv.carbon_kg }} kg CO₂e · 📦 {{ getSubstantiveItems(inv.items).length }} 項</span>
+                  <span class="tag-items">📦 {{ getSubstantiveItems(inv.items).length }} 項</span>
                   <div class="record-right-actions">
                     <span
                       class="tag-source"
@@ -250,7 +239,7 @@
                 </div>
 
                 <div class="camera-hint-box" v-else-if="isExtracting || scanError || !isCameraRunning">
-                  <p v-if="isExtracting" class="hint-text">⏳ 正在解析發票與碳足跡...</p>
+                  <p v-if="isExtracting" class="hint-text">⏳ 正在解析發票資料...</p>
                   <div v-else-if="scanError" class="error-hint-box">
                     <p class="error-text">⚠️ {{ cameraStatusMsg || '無法啟動相機，請確認 HTTPS 與相機權限' }}</p>
                     <button class="retry-btn" @click="startCameraScanner">重新開啟相機</button>
@@ -375,21 +364,21 @@
       <!-- 4. 【計畫】分頁內容 -->
       <template v-if="currentTab === 'plan'">
         <section class="page-card">
-          <h3 class="section-title mb-3 text-dark">🌱 進行中的低碳改善計畫</h3>
+          <h3 class="section-title mb-3 text-dark">📋 消費紀錄摘要</h3>
           <div class="ongoing-card mb-3">
             <div class="ongoing-header">
               <div class="task-info">
-                <div class="task-icon yellow-bg">⚠️</div>
+                <div class="task-icon yellow-bg">🧾</div>
                 <div>
-                  <h4>本週乳製品與瓶裝茶類攝取偏高</h4>
-                  <p class="ongoing-desc">系統建議：改以燕麥奶替換全脂牛奶，或自備環保杯購買手搖飲。</p>
+                  <h4>本期發票登錄進度</h4>
+                  <p class="ongoing-desc">目前已累積 {{ invoiceList.length }} 張發票，總金額 TWD {{ totalAmountSum.toLocaleString() }}。</p>
                 </div>
               </div>
-              <span class="badge-tag">進行中 65%</span>
+              <span class="badge-tag">{{ invoiceList.length }} 張</span>
             </div>
             <div class="ongoing-footer">
-              <span>預估可減少：<strong>1.4 公斤碳排</strong> (省下約 45 元)</span>
-              <button class="action-go-btn">查看詳情</button>
+              <span>已記錄商品：<strong>{{ totalItemsSum }} 項</strong></span>
+              <button class="action-go-btn" @click="currentTab = 'invoices'">查看存摺</button>
             </div>
           </div>
         </section>
@@ -606,9 +595,6 @@
             <strong>登錄方式：</strong>
             {{ selectedInvoiceDetail.source_type === 'traditional' ? '傳統發票' : '電子發票' }}
           </p>
-          <p v-if="selectedInvoiceDetail.carbon_kg !== undefined">
-            <strong>預估碳排：</strong>{{ selectedInvoiceDetail.carbon_kg }} kg CO₂e（隱形碳成本 {{ selectedInvoiceDetail.hidden_carbon_cost || 0 }} 元）
-          </p>
         </div>
 
         <div class="detail-items-section" v-if="selectedInvoiceDetail.items && selectedInvoiceDetail.items.length > 0">
@@ -741,8 +727,6 @@ const TRACK_CATEGORY_MAP = {
   FT: '一般消費',
   FG: '餐飲消費'
 }
-
-const NON_CARBON_KEYWORDS = ['代收', '代繳', '手續費', '跨行', '物流費', '運費']
 
 const scannedTradNumber = ref('')
 
@@ -886,8 +870,7 @@ const normalizeItemRow = (item) => {
     item_name: name,
     quantity,
     unit_price: unitPrice,
-    amount,
-    carbon_kg: item?.carbon_kg !== undefined ? Number(item.carbon_kg) : undefined
+    amount
   }
 
   return {
@@ -935,8 +918,7 @@ const reconcileInvoiceAmounts = (items = [], qrTotalAmount = 0) => {
           item_name: '折扣／折讓調整',
           quantity: 1,
           unit_price: diff,
-          amount: diff,
-          carbon_kg: 0
+          amount: diff
         }
       ]),
       totalAmount,
@@ -949,46 +931,6 @@ const reconcileInvoiceAmounts = (items = [], qrTotalAmount = 0) => {
     totalAmount,
     unmatchedDiff: diff > 0 ? diff : 0
   }
-}
-
-const estimateFallbackItemCarbon = (itemName, amount) => {
-  const amt = Number(amount || 0)
-  if (amt <= 0) return 0
-  const name = String(itemName || '')
-  if (NON_CARBON_KEYWORDS.some((kw) => name.includes(kw))) {
-    return 0
-  }
-  return Number((amt * 0.0015).toFixed(4))
-}
-
-const computeInvoiceCarbonMetrics = (items = [], totalAmount = 0, backendData = {}) => {
-  const substantive = getSubstantiveItems(items)
-  const itemsCarbon = Number(
-    Math.max(
-      substantive.reduce((sum, it) => {
-        const c =
-          it.carbon_kg !== undefined
-            ? Number(it.carbon_kg)
-            : estimateFallbackItemCarbon(it.item_name, it.amount)
-        return sum + (Number.isFinite(c) && c > 0 ? c : 0)
-      }, 0),
-      0
-    ).toFixed(2)
-  )
-
-  const carbonKg =
-    substantive.length > 0
-      ? itemsCarbon
-      : backendData.carbon_kg !== undefined && Number(backendData.carbon_kg) >= 0
-      ? Number(Number(backendData.carbon_kg).toFixed(2))
-      : Number((Math.max(Number(totalAmount || 0), 0) * 0.0015).toFixed(2))
-
-  const hiddenCost =
-    backendData.hidden_carbon_cost !== undefined && substantive.length === 0
-      ? Number(Number(backendData.hidden_carbon_cost).toFixed(2))
-      : Number((carbonKg * 3.2).toFixed(2))
-
-  return { carbonKg, hiddenCost }
 }
 
 const loadUserSession = () => {
@@ -1029,18 +971,11 @@ const syncInvoicesFromCloud = async () => {
           Array.isArray(inv.items) ? inv.items : [],
           Number(inv.total_amount || 0)
         )
-        const { carbonKg, hiddenCost } = computeInvoiceCarbonMetrics(
-          reconciled.items,
-          reconciled.totalAmount,
-          inv
-        )
         return {
           ...inv,
           purchase_date: formattedDate,
           total_amount: reconciled.totalAmount,
           unmatched_diff: reconciled.unmatchedDiff,
-          carbon_kg: carbonKg,
-          hidden_carbon_cost: hiddenCost,
           summary_title: buildSummaryTitle(reconciled.items, inv.merchant_name),
           items: reconciled.items
         }
@@ -1074,8 +1009,6 @@ const saveInvoiceToCloud = async (record, sourceType = 'qr') => {
         store_name: record.store_name || null,
         category_name: record.category_name || '一般消費',
         total_amount: Number(record.total_amount || 0),
-        carbon_kg: Number(record.carbon_kg || 0),
-        hidden_carbon_cost: Number(record.hidden_carbon_cost || 0),
         calc_label: record.calc_label || null,
         source_type: sourceType,
         items: normalizedItems
@@ -1227,10 +1160,6 @@ const submitTraditionalInvoice = async () => {
 
   const reconciled = reconcileInvoiceAmounts(validItems, finalTotalAmount)
   const substantiveCount = getSubstantiveItems(reconciled.items).length
-  const { carbonKg, hiddenCost } = computeInvoiceCarbonMetrics(
-    reconciled.items,
-    reconciled.totalAmount
-  )
 
   const record = {
     id: Date.now() + Math.random(),
@@ -1247,9 +1176,7 @@ const submitTraditionalInvoice = async () => {
         : `${storeName}（傳統發票）`,
     total_amount: reconciled.totalAmount,
     unmatched_diff: reconciled.unmatchedDiff,
-    carbon_kg: carbonKg,
-    hidden_carbon_cost: hiddenCost,
-    calc_label: substantiveCount > 0 ? '逐項商品明細推估' : `套用預設「${categoryName}」係數推估`,
+    calc_label: substantiveCount > 0 ? '逐項商品明細' : '傳統發票金額登錄',
     source_type: 'traditional',
     items: reconciled.items
   }
@@ -1268,18 +1195,49 @@ const submitTraditionalInvoice = async () => {
   }, 2200)
 }
 
+// 傳統發票字軌正規化與抽取（2 碼英文字母 + 8 碼數字）
 const extractInvoiceTrackCode = (rawStr = '') => {
-  const cleaned = String(rawStr || '')
-    .toUpperCase()
-    .replace(/[O]/g, '0')
-    .replace(/[I|L]/g, '1')
-    .replace(/[^A-Z0-9]/g, ' ')
-    .trim()
+  const lines = String(rawStr || '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
 
-  const match = cleaned.match(/\b([A-Z]{2})\s*[-·.]?\s*(\d{8})\b/)
-  if (!match) return ''
+  for (const line of lines) {
+    // 排除明顯含日期斜線或統編／電話字樣的行
+    if (/^\d{2,3}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{1,2}/.test(line)) continue
+    if (/統編|TEL|電話|地址|中壢|台北|台中|台南|高雄/i.test(line)) continue
 
-  return `${match[1]}${match[2]}`
+    const compact = line
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+
+    const m = compact.match(/([A-Z0-9]{2})(\d{8})/)
+    if (!m) continue
+
+    let alpha = m[1]
+    let digits = m[2]
+
+    // 英文軌字元校正（字軌為大寫英文字母，常見誤判為數字 0/1/5/8）
+    alpha = alpha
+      .replace(/0/g, 'O')
+      .replace(/1/g, 'I')
+      .replace(/5/g, 'S')
+      .replace(/8/g, 'B')
+
+    // 數字碼字元校正（常見誤判為英文字母 O/Q/D/I/L/S/B/Z）
+    digits = digits
+      .replace(/[OQD]/g, '0')
+      .replace(/[IL]/g, '1')
+      .replace(/S/g, '5')
+      .replace(/B/g, '8')
+      .replace(/Z/g, '2')
+
+    if (/^[A-Z]{2}$/.test(alpha) && /^\d{8}$/.test(digits)) {
+      return `${alpha}${digits}`
+    }
+  }
+
+  return ''
 }
 
 const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 135) => {
@@ -1287,13 +1245,14 @@ const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 135) => {
   const vh = srcVideo.videoHeight
   if (!vw || !vh || !cropCanvas) return null
 
-  const sx = Math.floor(vw * 0.06)
-  const sy = Math.floor(vh * 0.20)
-  const sw = Math.floor(vw * 0.88)
-  const sh = Math.floor(vh * 0.48)
+  // 聚焦在綠色框所在中央字軌帶，避開上下期別與地址文字
+  const sx = Math.floor(vw * 0.14)
+  const sy = Math.floor(vh * 0.34)
+  const sw = Math.floor(vw * 0.72)
+  const sh = Math.floor(vh * 0.22)
 
-  const targetW = 1000
-  const targetH = Math.max(220, Math.round((sh / sw) * targetW))
+  const targetW = 1100
+  const targetH = Math.max(200, Math.round((sh / sw) * targetW))
   cropCanvas.width = targetW
   cropCanvas.height = targetH
 
@@ -1320,7 +1279,7 @@ const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 135) => {
 
 const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
   if (!srcVideo || !cropCanvas || isRecognizingTrack.value || showTradEditorModal.value) return
-  if (Date.now() - lastTrackScanAt < 850) return
+  if (Date.now() - lastTrackScanAt < 650) return
   lastTrackScanAt = Date.now()
 
   isRecognizingTrack.value = true
@@ -1332,7 +1291,7 @@ const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
       })
     }
 
-    const thresholds = [110, 145, 175]
+    const thresholds = [125, 155, 180]
     for (const th of thresholds) {
       const processed = buildBinarizedCanvas(srcVideo, cropCanvas, th)
       if (!processed) break
@@ -1342,10 +1301,16 @@ const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
       const foundTrack = extractInvoiceTrackCode(fullText)
 
       if (foundTrack) {
-        if (foundTrack !== scannedTradNumber.value) {
-          scannedTradNumber.value = foundTrack
+        if (foundTrack === candidateTrack) {
+          candidateTrackHits += 1
+        } else {
           candidateTrack = foundTrack
           candidateTrackHits = 1
+        }
+
+        // 同一字軌連續命中 2 次才鎖定，避免單幀誤判跳動
+        if (candidateTrackHits >= 2 && foundTrack !== scannedTradNumber.value) {
+          scannedTradNumber.value = foundTrack
           applyScannedTrackToForm(foundTrack)
           triggerGreenPulse()
           successToastMsg.value = `已辨識字軌 ${foundTrack.slice(0, 2)} ${foundTrack.slice(2)}`
@@ -2015,9 +1980,12 @@ const deleteInvoice = async (targetId) => {
   }
 }
 
-const totalCarbonSum = computed(() => {
-  const sum = invoiceList.value.reduce((acc, item) => acc + Number(item.carbon_kg || 0), 0)
-  return sum.toFixed(1)
+const totalAmountSum = computed(() => {
+  return invoiceList.value.reduce((acc, item) => acc + Number(item.total_amount || 0), 0)
+})
+
+const totalItemsSum = computed(() => {
+  return invoiceList.value.reduce((acc, item) => acc + getSubstantiveItems(item.items).length, 0)
 })
 
 const sourceFilterLabel = computed(() => {
@@ -2059,16 +2027,6 @@ const filteredTotalAmount = computed(() => {
   return filteredInvoices.value.reduce((acc, item) => acc + Number(item.total_amount || 0), 0)
 })
 
-const filteredTotalCarbon = computed(() => {
-  const sum = filteredInvoices.value.reduce((acc, item) => acc + Number(item.carbon_kg || 0), 0)
-  return sum.toFixed(2)
-})
-
-const filteredHiddenCost = computed(() => {
-  const sum = filteredInvoices.value.reduce((acc, item) => acc + Number(item.hidden_carbon_cost || 0), 0)
-  return Math.round(sum)
-})
-
 const filteredTotalItemsCount = computed(() => {
   return filteredInvoices.value.reduce(
     (acc, item) => acc + getSubstantiveItems(item.items).length,
@@ -2104,7 +2062,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 傳統發票：將字軌號碼對準綠色框可自動帶入；發票日期請手動輸入，也可點選「編輯發票明細並儲存」填寫金額、商家與商品明細。\n3. 折扣列不扣減碳排；純代收與手續費不列入實物碳排。')
+  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 傳統發票：將字軌號碼對準綠色框可自動帶入；發票日期請手動輸入，也可點選「編輯發票明細並儲存」填寫金額、商家與商品明細。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
@@ -2167,11 +2125,10 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
   const substantiveCount = getSubstantiveItems(items).length
   const calcLabel =
     substantiveCount > 0
-      ? '逐項商品明細推估'
-      : `無逐項明細，套用預設「${categoryName}」係數推估`
+      ? '逐項商品明細'
+      : `發票總金額（${categoryName}）`
 
   const summaryTitle = buildSummaryTitle(items, merchantName)
-  const { carbonKg, hiddenCost } = computeInvoiceCarbonMetrics(items, totalAmount, backendData)
 
   return {
     id: backendData.invoice_id || backendData.id || Date.now() + Math.random(),
@@ -2185,8 +2142,6 @@ const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
     summary_title: summaryTitle,
     total_amount: totalAmount,
     unmatched_diff: reconciled.unmatchedDiff,
-    carbon_kg: carbonKg,
-    hidden_carbon_cost: hiddenCost,
     calc_label: calcLabel,
     source_type: 'electronic',
     items
@@ -2218,7 +2173,7 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
       backendData = result?.data || {}
     }
   } catch (err) {
-    console.warn('後端未回應，改用前端 QR 解析與預設類別係數推估：', err)
+    console.warn('後端未回應，改用前端 QR 解析：', err)
   } finally {
     let record = resolveInvoiceRecord(inputMeta, backendData)
 
@@ -2377,7 +2332,7 @@ const handleLogout = async () => {
 }
 
 .stat-num {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: bold;
   color: #ffffff;
 }
@@ -2450,7 +2405,6 @@ const handleLogout = async () => {
 
 .green-bg { background-color: #d1fae5; }
 .blue-bg { background-color: #e0f2fe; }
-.orange-bg { background-color: #fef3c7; }
 .yellow-bg { background-color: #fef9c3; }
 
 .task-info h4 {
@@ -2624,10 +2578,10 @@ const handleLogout = async () => {
   color: #374151;
 }
 
-.summary-carbon-pill {
-  background-color: #ecfdf5;
-  color: #065f46;
-  border: 1px solid #a7f3d0;
+.summary-info-pill {
+  background-color: #fef3c7;
+  color: #78350f;
+  border: 1px solid #fde68a;
   border-radius: 10px;
   padding: 0.55rem 0.85rem;
   font-size: 0.86rem;
@@ -2724,7 +2678,7 @@ const handleLogout = async () => {
   align-items: center;
 }
 
-.tag-carbon {
+.tag-items {
   background-color: #f3f4f6;
   color: #374151;
   font-size: 0.78rem;
