@@ -365,7 +365,7 @@
                 </button>
 
                 <p class="scanner-footer-note">
-                  將字軌與日期對準綠色框自動辨識帶入，或點擊「編輯發票明細並儲存」填寫日期、金額、商家與商品明細。
+                  將字軌對準綠色框可自動帶入字軌號碼；日期請手動輸入，也可點擊「編輯發票明細並儲存」填寫完整資訊。
                 </p>
               </div>
             </template>
@@ -456,18 +456,18 @@
             </div>
           </div>
 
-          <!-- 2. 發票日期 * -->
+          <!-- 2. 發票日期 *（改為手動輸入） -->
           <div class="official-field">
             <div class="official-label-row">
               <label class="official-label">
                 <span>發票日期 <span class="official-req">*</span></span>
               </label>
-              <span v-if="scannedTradDate" class="official-scanned-badge">已自動辨識日期</span>
             </div>
             <input
-              type="date"
+              type="text"
               v-model="tradEditorForm.purchase_date"
-              class="official-control official-date-input"
+              placeholder="例如：2026/09/15 或 115/09/15"
+              class="official-control official-manual-date"
             />
           </div>
 
@@ -747,7 +747,6 @@ const TRACK_CATEGORY_MAP = {
 const NON_CARBON_KEYWORDS = ['代收', '代繳', '手續費', '跨行', '物流費', '運費']
 
 const scannedTradNumber = ref('')
-const scannedTradDate = ref('')
 
 const scannedTradFormatted = computed(() => {
   const clean = String(scannedTradNumber.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -760,7 +759,7 @@ const scannedTradFormatted = computed(() => {
 const showTradEditorModal = ref(false)
 const tradEditorForm = ref({
   invoice_type_label: '傳統發票',
-  purchase_date: new Date().toISOString().slice(0, 10),
+  purchase_date: '',
   track_alpha: '',
   track_digits: '',
   total_amount: 0,
@@ -792,8 +791,31 @@ const getSubstantiveItems = (items = []) => {
 }
 
 const normalizeDateOnly = (rawVal) => {
-  const str = String(rawVal || '').trim()
+  const str = String(rawVal || '')
+    .trim()
+    .replaceAll('—', '-')
+    .replaceAll('–', '-')
+
   if (!str) return '2026/10/30'
+
+  // 支援民國日期輸入（如 115/09/15 或 115-09-15 或 115年09月15日）
+  const rocMatch = str.match(/^(\d{2,3})\s*[年/.-]\s*(\d{1,2})\s*[月/.-]\s*(\d{1,2})\s*日?$/)
+  if (rocMatch) {
+    const adYear = Number(rocMatch[1]) + 1911
+    const mm = rocMatch[2].padStart(2, '0')
+    const dd = rocMatch[3].padStart(2, '0')
+    return `${adYear}/${mm}/${dd}`
+  }
+
+  // 支援西元日期輸入（如 2026/09/15 或 2026-09-15）
+  const adMatch = str.match(/^(\d{4})\s*[年/.-]\s*(\d{1,2})\s*[月/.-]\s*(\d{1,2})\s*日?$/)
+  if (adMatch) {
+    const yyyy = adMatch[1]
+    const mm = adMatch[2].padStart(2, '0')
+    const dd = adMatch[3].padStart(2, '0')
+    return `${yyyy}/${mm}/${dd}`
+  }
+
   return str.slice(0, 10).replaceAll('-', '/')
 }
 
@@ -1135,10 +1157,7 @@ const openTradEditorModal = () => {
 
   tradEditorForm.value = {
     invoice_type_label: '傳統發票',
-    purchase_date:
-      scannedTradDate.value ||
-      tradEditorForm.value.purchase_date ||
-      new Date().toISOString().slice(0, 10),
+    purchase_date: tradEditorForm.value.purchase_date || '',
     track_alpha: match ? match[1] : tradEditorForm.value.track_alpha || '',
     track_digits: match ? match[2] : tradEditorForm.value.track_digits || '',
     total_amount: 0,
@@ -1164,14 +1183,15 @@ const removeTradItemRow = (idx) => {
 const submitTraditionalInvoice = async () => {
   const alpha = String(tradEditorForm.value.track_alpha || '').toUpperCase().replace(/[^A-Z]/g, '')
   const digits = String(tradEditorForm.value.track_digits || '').replace(/\D/g, '')
+  const manualDate = String(tradEditorForm.value.purchase_date || '').trim()
 
   if (alpha.length !== 2 || digits.length !== 8) {
     alert('請輸入完整的傳統發票號碼（2 碼英文軌＋8 碼數字，例如 EF 54403818）')
     return
   }
 
-  if (!tradEditorForm.value.purchase_date) {
-    alert('請選擇發票日期')
+  if (!manualDate) {
+    alert('請手動輸入發票日期')
     return
   }
 
@@ -1207,7 +1227,7 @@ const submitTraditionalInvoice = async () => {
 
   const storeName = String(tradEditorForm.value.merchant_name || '').trim() || '傳統發票'
   const categoryName = tradEditorForm.value.category_name || '一般消費'
-  const formattedDate = normalizeDateOnly(tradEditorForm.value.purchase_date)
+  const formattedDate = normalizeDateOnly(manualDate)
 
   const reconciled = reconcileInvoiceAmounts(validItems, finalTotalAmount)
   const substantiveCount = getSubstantiveItems(reconciled.items).length
@@ -1243,7 +1263,6 @@ const submitTraditionalInvoice = async () => {
   lastExtractedInvoice.value = saved
   showTradEditorModal.value = false
   scannedTradNumber.value = ''
-  scannedTradDate.value = ''
   candidateTrack = ''
   candidateTrackHits = 0
 
@@ -1270,42 +1289,6 @@ const extractInvoiceTrackCode = (rawStr = '') => {
     return ''
   }
   return `${alpha}${digits}`
-}
-
-const parseTraditionalDateIso = (rawStr = '') => {
-  const text = String(rawStr || '')
-    .replaceAll('—', '-')
-    .replaceAll('–', '-')
-    .replaceAll('～', '-')
-    .replaceAll('~', '-')
-
-  // 1. 西元完整日期：2026/09/15、2026-09-15、2026.09.15
-  const adFull = text.match(/\b(20\d{2})\s*[/.-]\s*(0?[1-9]|1[0-2])\s*[/.-]\s*(0?[1-9]|[12]\d|3[01])\b/)
-  if (adFull) {
-    const y = adFull[1]
-    const m = adFull[2].padStart(2, '0')
-    const d = adFull[3].padStart(2, '0')
-    return `${y}-${m}-${d}`
-  }
-
-  // 2. 民國完整日期：115/09/15、115-09-15、115.09.15、115年09月15日
-  const rocFull = text.match(/\b(10\d|11\d|12\d)\s*(?:年|[/.-])\s*(0?[1-9]|1[0-2])\s*(?:月|[/.-])\s*(0?[1-9]|[12]\d|3[01])\s*日?\b/)
-  if (rocFull) {
-    const adYear = Number(rocFull[1]) + 1911
-    const m = rocFull[2].padStart(2, '0')
-    const d = rocFull[3].padStart(2, '0')
-    return `${adYear}-${m}-${d}`
-  }
-
-  // 3. 雙月期別（如 115年09-10月 或 115年09–10月），帶入該期起始日
-  const rocPeriod = text.match(/\b(10\d|11\d|12\d)\s*年\s*(0?[1-9]|1[0-2])\s*-\s*(0?[1-9]|1[0-2])\s*月?/)
-  if (rocPeriod) {
-    const adYear = Number(rocPeriod[1]) + 1911
-    const startMonth = rocPeriod[2].padStart(2, '0')
-    return `${adYear}-${startMonth}-01`
-  }
-
-  return ''
 }
 
 const buildBinarizedCanvas = (srcVideo, cropCanvas, threshold = 125) => {
@@ -1351,7 +1334,7 @@ const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
     if (!ocrWorker) {
       ocrWorker = await createWorker('eng', 1, { logger: () => {} })
       await ocrWorker.setParameters({
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/-.'
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
       })
     }
 
@@ -1362,12 +1345,6 @@ const scanTraditionalTrackFromVideo = async (srcVideo, cropCanvas) => {
       const { data: ocrResult } = await ocrWorker.recognize(processed)
       const fullText = ocrResult?.text || ''
       const foundTrack = extractInvoiceTrackCode(fullText)
-      const foundDate = parseTraditionalDateIso(fullText)
-
-      if (foundDate && foundDate !== scannedTradDate.value) {
-        scannedTradDate.value = foundDate
-        tradEditorForm.value.purchase_date = foundDate
-      }
 
       if (foundTrack) {
         if (foundTrack === candidateTrack) {
@@ -2019,7 +1996,6 @@ onBeforeUnmount(async () => {
 const openScanTab = async () => {
   lastExtractedInvoice.value = null
   scannedTradNumber.value = ''
-  scannedTradDate.value = ''
   candidateTrack = ''
   candidateTrackHits = 0
   scanError.value = false
@@ -2138,7 +2114,7 @@ const toggleSortOrder = () => {
 }
 
 const alertHelp = () => {
-  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 傳統發票：將字軌號碼與日期對準綠色框可自動辨識帶入，或點選「編輯發票明細並儲存」輸入日期、金額、商家與商品明細。\n3. 折扣列不扣減碳排；純代收與手續費不列入實物碳排。')
+  alert('【掃描與登錄說明】\n1. 電子發票證明聯：左右 QR Code 可同時入鏡合併；若分開掃描，系統會短暫等待另一側 QR Code 補齊明細後再寫入。\n2. 傳統發票：將字軌號碼對準綠色框可自動帶入；發票日期請手動輸入，也可點選「編輯發票明細並儲存」填寫金額、商家與商品明細。\n3. 折扣列不扣減碳排；純代收與手續費不列入實物碳排。')
 }
 
 const resolveInvoiceRecord = (inputMeta = {}, backendData = {}) => {
@@ -3619,11 +3595,13 @@ input:checked + .slider:before { transform: translateX(20px); }
 .official-style-editor {
   width: 100%;
   max-width: 400px;
-  max-height: 90vh;
+  max-height: 86vh;
   padding: 0;
   gap: 0;
   border-radius: 16px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   background-color: #ffffff;
   box-sizing: border-box;
 }
@@ -3636,6 +3614,7 @@ input:checked + .slider:before { transform: translateX(20px); }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .official-back-btn {
@@ -3659,12 +3638,14 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 .official-editor-body {
-  padding: 1.1rem 1.15rem;
+  flex: 1;
+  min-height: 0;
+  padding: 1rem 1.15rem;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.95rem;
   box-sizing: border-box;
 }
 
@@ -3737,14 +3718,8 @@ input:checked + .slider:before { transform: translateX(20px); }
   border-color: #7c5dfa;
 }
 
-.official-date-input {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
+.official-manual-date {
   text-align: left;
-  -webkit-appearance: none;
-  appearance: none;
 }
 
 .official-select-wrap {
@@ -3871,6 +3846,7 @@ input:checked + .slider:before { transform: translateX(20px); }
   display: flex;
   justify-content: flex-end;
   gap: 0.65rem;
+  flex-shrink: 0;
   box-sizing: border-box;
 }
 
