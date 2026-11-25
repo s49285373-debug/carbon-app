@@ -86,6 +86,45 @@
             </div>
           </div>
         </section>
+
+        <!-- 首頁下方：已新增餐點列表 -->
+        <section class="section-group">
+          <h3 class="section-title">🍱 已新增餐點</h3>
+          <div class="home-meal-box">
+            <div class="meal-list-stack" v-if="mealList.length > 0">
+              <div class="meal-record-card" v-for="meal in mealList" :key="meal.record_id">
+                <div class="meal-record-top">
+                  <span class="meal-record-id">{{ meal.record_id }}</span>
+                  <span class="meal-record-date">{{ meal.created_date }}</span>
+                </div>
+
+                <div class="meal-record-main">
+                  <div class="meal-record-title">{{ meal.meal_name }}</div>
+                  <span class="tag-items">{{ meal.ingredients.length }} 項食材</span>
+                </div>
+
+                <div class="meal-record-ingredients">
+                  <span
+                    v-for="(ing, i) in meal.ingredients"
+                    :key="i"
+                    class="meal-ing-chip"
+                  >
+                    {{ ing.ingredient_name }} {{ ing.portion_amount }}{{ ing.unit }}
+                  </span>
+                </div>
+
+                <div class="meal-record-bottom">
+                  <span class="meal-cost-text">建立日期：{{ meal.created_date }}</span>
+                  <button type="button" class="tag-delete-btn" @click="deleteMealRecord(meal.record_id)">刪除</button>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="home-meal-empty">
+              {{ isSyncingMeals ? '正在同步雲端餐點紀錄...' : '尚無已新增的餐點，可點擊上方「新增餐點」建立紀錄。' }}
+            </div>
+          </div>
+        </section>
       </template>
 
       <!-- 2. 【發票存摺】分頁內容 -->
@@ -556,8 +595,7 @@
                   type="text"
                   maxlength="30"
                   v-model="ing.ingredient_name"
-                  list="meal-ingredient-options"
-                  placeholder="輸入或選擇食材（如：國產豬肉、白飯、青菜）"
+                  placeholder="輸入食材（如：國產豬肉、白飯、青菜）"
                   class="official-control official-item-name"
                 />
 
@@ -576,10 +614,6 @@
                   </select>
                 </div>
               </div>
-
-              <datalist id="meal-ingredient-options">
-                <option v-for="name in COMMON_INGREDIENTS" :key="name" :value="name"></option>
-              </datalist>
 
               <button type="button" class="official-add-item-btn" @click="addMealIngredientRow">
                 <span class="official-plus-circle">+</span>
@@ -748,6 +782,7 @@ const continuousScan = ref(true)
 const scanError = ref(false)
 const isExtracting = ref(false)
 const isSyncingInvoices = ref(false)
+const isSyncingMeals = ref(false)
 const isSavingMeal = ref(false)
 const lastExtractedInvoice = ref(null)
 const isCameraRunning = ref(false)
@@ -777,17 +812,7 @@ const sortDesc = ref(true)
 const selectedInvoiceDetail = ref(null)
 const invoiceList = ref([])
 
-const COMMON_INGREDIENTS = [
-  '國產豬肉',
-  '牛肉',
-  '雞肉',
-  '白飯',
-  '青菜',
-  '雞蛋',
-  '豆腐',
-  '蒜泥醬料'
-]
-
+const mealList = ref([])
 const mealForm = ref({
   meal_name: '',
   ingredients: [
@@ -798,15 +823,44 @@ const mealForm = ref({
 const MEAL_STORAGE_KEY_PREFIX = 'carbon_meal_records_'
 const getMealStorageKey = () => `${MEAL_STORAGE_KEY_PREFIX}${userPhone.value || 'guest'}`
 
-const saveMealRecordLocal = (record) => {
+const loadMealRecordsLocal = () => {
   try {
-    const key = getMealStorageKey()
-    const raw = localStorage.getItem(key)
-    const existing = raw ? JSON.parse(raw) : []
-    const nextList = Array.isArray(existing) ? [record, ...existing] : [record]
-    localStorage.setItem(key, JSON.stringify(nextList))
+    const raw = localStorage.getItem(getMealStorageKey())
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      mealList.value = parsed
+    }
+  } catch {
+    // 忽略解析例外
+  }
+}
+
+const saveMealRecordsLocal = () => {
+  try {
+    localStorage.setItem(getMealStorageKey(), JSON.stringify(mealList.value))
   } catch {
     // 忽略儲存例外
+  }
+}
+
+const syncMealsFromCloud = async () => {
+  loadMealRecordsLocal()
+  if (!userPhone.value) return
+  isSyncingMeals.value = true
+  try {
+    const url = `${API_BASE_URL}/api/meals?phone=${encodeURIComponent(userPhone.value)}`
+    const res = await fetch(url)
+    if (!res.ok) return
+    const result = await res.json()
+    if (result?.status === 'success' && Array.isArray(result.data)) {
+      mealList.value = result.data
+      saveMealRecordsLocal()
+    }
+  } catch (err) {
+    console.warn('同步雲端餐點紀錄失敗，改用本地快取：', err)
+  } finally {
+    isSyncingMeals.value = false
   }
 }
 
@@ -886,7 +940,8 @@ const submitMealRecord = async () => {
     }
 
     const savedRecord = await saveMealToCloud(draftRecord)
-    saveMealRecordLocal(savedRecord)
+    mealList.value.unshift(savedRecord)
+    saveMealRecordsLocal()
 
     mealForm.value = {
       meal_name: '',
@@ -897,6 +952,21 @@ const submitMealRecord = async () => {
   } finally {
     isSavingMeal.value = false
   }
+}
+
+const deleteMealRecord = async (recordId) => {
+  if (userPhone.value && recordId) {
+    try {
+      const url = `${API_BASE_URL}/api/meals/${encodeURIComponent(
+        recordId
+      )}?phone=${encodeURIComponent(userPhone.value)}`
+      await fetch(url, { method: 'DELETE' })
+    } catch (err) {
+      console.warn('刪除雲端餐點紀錄失敗：', err)
+    }
+  }
+  mealList.value = mealList.value.filter((item) => item.record_id !== recordId)
+  saveMealRecordsLocal()
 }
 
 const TRACK_CATEGORY_MAP = {
@@ -1942,12 +2012,15 @@ watch(currentTab, async (newTab, oldTab) => {
     if (newTab === 'invoices' || newTab === 'home') {
       await syncInvoicesFromCloud()
     }
+    if (newTab === 'home') {
+      await syncMealsFromCloud()
+    }
   }
 })
 
 onMounted(async () => {
   loadUserSession()
-  await syncInvoicesFromCloud()
+  await Promise.all([syncInvoicesFromCloud(), syncMealsFromCloud()])
   if (currentTab.value === 'scan') {
     startCameraScanner()
   }
@@ -2454,6 +2527,91 @@ const handleLogout = async () => {
   background-color: #059669;
   color: white;
   border-color: #059669;
+}
+
+.home-meal-box {
+  background-color: #ffffff;
+  color: #1f2937;
+  padding: 1.25rem;
+  border-radius: 18px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+}
+
+.home-meal-empty {
+  text-align: center;
+  font-size: 0.88rem;
+  color: #6b7280;
+  padding: 1rem 0.5rem;
+}
+
+.meal-list-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.meal-record-card {
+  border: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.meal-record-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.meal-record-id {
+  font-weight: 700;
+  color: #047857;
+}
+
+.meal-record-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.meal-record-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.meal-record-ingredients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.meal-ing-chip {
+  background-color: #ffffff;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  font-size: 0.78rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+}
+
+.meal-record-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: #4b5563;
+}
+
+.meal-cost-text {
+  font-weight: 600;
 }
 
 .passbook-wrapper {
