@@ -86,45 +86,6 @@
             </div>
           </div>
         </section>
-
-        <!-- 首頁下方：已新增餐點列表 -->
-        <section class="section-group">
-          <h3 class="section-title">🍱 已新增餐點</h3>
-          <div class="home-meal-box">
-            <div class="meal-list-stack" v-if="mealList.length > 0">
-              <div class="meal-record-card" v-for="meal in mealList" :key="meal.record_id">
-                <div class="meal-record-top">
-                  <span class="meal-record-id">{{ meal.record_id }}</span>
-                  <span class="meal-record-date">{{ meal.created_date }}</span>
-                </div>
-
-                <div class="meal-record-main">
-                  <div class="meal-record-title">{{ meal.meal_name }}</div>
-                  <span class="tag-items">{{ meal.ingredients.length }} 項食材</span>
-                </div>
-
-                <div class="meal-record-ingredients">
-                  <span
-                    v-for="(ing, i) in meal.ingredients"
-                    :key="i"
-                    class="meal-ing-chip"
-                  >
-                    {{ ing.ingredient_name }} {{ ing.portion_amount }}{{ ing.unit }}
-                  </span>
-                </div>
-
-                <div class="meal-record-bottom">
-                  <span class="meal-cost-text">建立日期：{{ meal.created_date }}</span>
-                  <button type="button" class="tag-delete-btn" @click="deleteMealRecord(meal.record_id)">刪除</button>
-                </div>
-              </div>
-            </div>
-
-            <div v-else class="home-meal-empty">
-              {{ isSyncingMeals ? '正在同步雲端餐點紀錄...' : '尚無已新增的餐點，可點擊上方「新增餐點」建立紀錄。' }}
-            </div>
-          </div>
-        </section>
       </template>
 
       <!-- 2. 【發票存摺】分頁內容 -->
@@ -555,7 +516,7 @@
           <div class="scanner-top-bar official-editor-header">
             <button
               class="scanner-text-btn"
-              @click="currentTab = 'home'"
+              @click="currentTab = previousTabBeforeMeal"
             >
               &lt; 返回
             </button>
@@ -633,7 +594,56 @@
         </div>
       </template>
 
-      <!-- 5. 【設定會員】分頁內容 -->
+      <!-- 5. 【餐點（已新增餐點列表）】分頁內容 -->
+      <template v-if="currentTab === 'meals'">
+        <div class="passbook-wrapper">
+          <div class="passbook-top-bar">
+            <span class="passbook-topbar-spacer"></span>
+            <span class="passbook-bar-title">已新增餐點</span>
+            <button class="passbook-icon-btn" @click="openMealTab" title="新增餐點">＋</button>
+          </div>
+
+          <div class="passbook-body">
+            <div class="meal-list-stack" v-if="mealList.length > 0">
+              <div class="meal-record-card" v-for="meal in mealList" :key="meal.record_id">
+                <div class="meal-record-top">
+                  <span class="meal-record-id">{{ meal.record_id }}</span>
+                  <span class="meal-record-date">{{ meal.created_date }}</span>
+                </div>
+
+                <div class="meal-record-main">
+                  <div class="meal-record-title">{{ meal.meal_name }}</div>
+                  <span class="tag-items">{{ meal.ingredients.length }} 項食材</span>
+                </div>
+
+                <div class="meal-record-ingredients">
+                  <span
+                    v-for="(ing, i) in meal.ingredients"
+                    :key="i"
+                    class="meal-ing-chip"
+                  >
+                    {{ ing.ingredient_name }} {{ ing.portion_amount }}{{ ing.unit }}
+                  </span>
+                </div>
+
+                <div class="meal-record-bottom">
+                  <span class="meal-cost-text">建立日期：{{ meal.created_date }}</span>
+                  <button type="button" class="tag-delete-btn" @click="deleteMealRecord(meal.record_id)">刪除</button>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="empty-invoice-state">
+              <p>{{ isSyncingMeals ? '正在同步雲端餐點紀錄...' : '尚無已新增的餐點紀錄' }}</p>
+              <div v-if="!isSyncingMeals" class="empty-action-group">
+                <button class="primary-action-btn" @click="openMealTab">前往新增餐點</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- 6. 【設定會員】分頁內容 -->
       <template v-if="currentTab === 'member'">
         <section class="page-card">
           <h3 class="section-title mb-3 text-dark">⚙️ 設定會員</h3>
@@ -750,6 +760,10 @@
         <span class="nav-icon">📷</span>
         <span class="nav-label">掃 QR</span>
       </div>
+      <div class="nav-item" :class="{ active: currentTab === 'meals' }" @click="currentTab = 'meals'">
+        <span class="nav-icon">🍱</span>
+        <span class="nav-label">餐點</span>
+      </div>
       <div class="nav-item" :class="{ active: currentTab === 'member' }" @click="currentTab = 'member'">
         <span class="nav-icon">👤</span>
         <span class="nav-label">會員</span>
@@ -769,6 +783,7 @@ const nickname = ref('使用者')
 const userPhone = ref('')
 const currentTab = ref('home')
 const previousTabBeforeManual = ref('home')
+const previousTabBeforeMeal = ref('home')
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
 
@@ -889,6 +904,9 @@ const saveMealToCloud = async (record) => {
 }
 
 const openMealTab = () => {
+  if (currentTab.value !== 'meal') {
+    previousTabBeforeMeal.value = currentTab.value
+  }
   currentTab.value = 'meal'
 }
 
@@ -948,7 +966,7 @@ const submitMealRecord = async () => {
       ingredients: [{ ingredient_name: '', portion_amount: 150, unit: 'g' }]
     }
 
-    currentTab.value = 'home'
+    currentTab.value = 'meals'
   } finally {
     isSavingMeal.value = false
   }
@@ -2012,7 +2030,7 @@ watch(currentTab, async (newTab, oldTab) => {
     if (newTab === 'invoices' || newTab === 'home') {
       await syncInvoicesFromCloud()
     }
-    if (newTab === 'home') {
+    if (newTab === 'meals') {
       await syncMealsFromCloud()
     }
   }
@@ -2527,22 +2545,6 @@ const handleLogout = async () => {
   background-color: #059669;
   color: white;
   border-color: #059669;
-}
-
-.home-meal-box {
-  background-color: #ffffff;
-  color: #1f2937;
-  padding: 1.25rem;
-  border-radius: 18px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-  box-sizing: border-box;
-}
-
-.home-meal-empty {
-  text-align: center;
-  font-size: 0.88rem;
-  color: #6b7280;
-  padding: 1rem 0.5rem;
 }
 
 .meal-list-stack {
