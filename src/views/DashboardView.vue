@@ -510,7 +510,7 @@
         </div>
       </template>
 
-      <!-- 4-B. 【新增餐點／食材】獨立畫面（無綠色預估框） -->
+      <!-- 4-B. 【新增餐點／食材】獨立畫面 -->
       <template v-if="currentTab === 'meal'">
         <div class="scanner-wrapper is-trad-editor">
           <div class="scanner-top-bar official-editor-header">
@@ -528,7 +528,7 @@
             <div class="official-field">
               <div class="official-label-row">
                 <label class="official-label">
-                  <span>餐點名稱 <span class="official-req">*</span> <span class="official-count">{{ (mealForm.meal_name || '').length }}/20</span></span>
+                  <span>餐點名稱 <span class="official-req">*</span></span>
                 </label>
               </div>
               <input
@@ -550,14 +550,6 @@
               >
                 <div class="official-item-top">
                   <span>食材 {{ idx + 1 }}</span>
-                  <button
-                    type="button"
-                    class="official-item-del"
-                    @click="removeMealIngredientRow(idx)"
-                    v-if="mealForm.ingredients.length > 1"
-                  >
-                    移除
-                  </button>
                 </div>
 
                 <input
@@ -611,27 +603,7 @@
       <template v-if="currentTab === 'plan'">
         <section class="page-card">
           <div class="meal-section-header">
-            <h3 class="section-title mb-3 text-dark">🍱 個人化介面－餐點清單列表</h3>
-            <button class="action-go-btn" @click="openMealTab">＋ 新增餐點</button>
-          </div>
-
-          <div class="ongoing-card mb-3">
-            <div class="ongoing-header">
-              <div class="task-info">
-                <div class="task-icon yellow-bg">🍽️</div>
-                <div>
-                  <h4>餐點紀錄摘要</h4>
-                  <p class="ongoing-desc">
-                    目前已建立 {{ mealList.length }} 筆餐點與食材紀錄。
-                  </p>
-                </div>
-              </div>
-              <span class="badge-tag">{{ mealList.length }} 筆</span>
-            </div>
-            <div class="ongoing-footer">
-              <span>發票累積：<strong>{{ invoiceList.length }} 張 / TWD {{ totalAmountSum.toLocaleString() }}</strong></span>
-              <button class="action-go-btn" @click="currentTab = 'invoices'">查看存摺</button>
-            </div>
+            <h3 class="section-title mb-3 text-dark">個人化餐點－餐點清單列表</h3>
           </div>
 
           <div class="meal-list-stack" v-if="mealList.length > 0">
@@ -954,12 +926,6 @@ const addMealIngredientRow = () => {
     portion_amount: 100,
     unit: 'g'
   })
-}
-
-const removeMealIngredientRow = (idx) => {
-  if (mealForm.value.ingredients.length > 1) {
-    mealForm.value.ingredients.splice(idx, 1)
-  }
 }
 
 const generateMealRecordId = () => {
@@ -3199,71 +3165,6 @@ const handleLogout = async () => {
 
 .meal-cost-text {
   font-weight: 600;
-}
-
-.ongoing-card {
-  background-color: #ffffff;
-  color: #1f2937;
-  padding: 1.25rem 1.5rem;
-  border-radius: 18px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  box-sizing: border-box;
-}
-
-.ongoing-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.ongoing-desc {
-  font-size: 0.825rem;
-  color: #4b5563;
-  margin: 0;
-}
-
-.badge-tag {
-  background-color: #fef3c7;
-  color: #d97706;
-  font-size: 0.75rem;
-  font-weight: bold;
-  padding: 0.3rem 0.75rem;
-  border-radius: 9999px;
-  border: 1px solid #fde68a;
-  flex-shrink: 0;
-}
-
-.ongoing-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 0.75rem;
-  border-top: 1px solid #f3f4f6;
-  font-size: 0.85rem;
-  color: #4b5563;
-}
-
-.ongoing-footer strong {
-  color: #059669;
-}
-
-.action-go-btn {
-  background-color: #059669;
-  color: white;
-  border: none;
-  padding: 0.4rem 1rem;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 500;
-  transition: background 0.2s;
-}
-
-.action-go-btn:hover {
-  background-color: #047857;
 }
 
 .page-card {
