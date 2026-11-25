@@ -510,7 +510,7 @@
         </div>
       </template>
 
-      <!-- 4-B. 【新增餐點／食材】獨立畫面 -->
+      <!-- 4-B. 【新增餐點／食材】獨立畫面（無綠色預估框） -->
       <template v-if="currentTab === 'meal'">
         <div class="scanner-wrapper is-trad-editor">
           <div class="scanner-top-bar official-editor-header">
@@ -597,9 +597,10 @@
               <button
                 type="button"
                 class="official-confirm-passbook-btn"
+                :disabled="isSavingMeal"
                 @click="submitMealRecord"
               >
-                確認儲存至餐點清單
+                {{ isSavingMeal ? '儲存中...' : '確認儲存至餐點清單' }}
               </button>
             </div>
           </div>
@@ -663,8 +664,8 @@
           </div>
 
           <div v-else class="empty-invoice-state">
-            <p>尚無餐點紀錄，可點擊「新增餐點」建立第一筆紀錄。</p>
-            <button class="primary-action-btn" @click="openMealTab">新增餐點</button>
+            <p>{{ isSyncingMeals ? '正在同步雲端餐點紀錄...' : '尚無餐點紀錄，可點擊「新增餐點」建立第一筆紀錄。' }}</p>
+            <button v-if="!isSyncingMeals" class="primary-action-btn" @click="openMealTab">新增餐點</button>
           </div>
         </section>
       </template>
@@ -823,6 +824,8 @@ const continuousScan = ref(true)
 const scanError = ref(false)
 const isExtracting = ref(false)
 const isSyncingInvoices = ref(false)
+const isSyncingMeals = ref(false)
+const isSavingMeal = ref(false)
 const lastExtractedInvoice = ref(null)
 const isCameraRunning = ref(false)
 const cameraStatusMsg = ref('')
@@ -873,26 +876,69 @@ const mealForm = ref({
 const MEAL_STORAGE_KEY_PREFIX = 'carbon_meal_records_'
 const getMealStorageKey = () => `${MEAL_STORAGE_KEY_PREFIX}${userPhone.value || 'guest'}`
 
-const loadMealRecords = () => {
+const loadMealRecordsLocal = () => {
   try {
     const raw = localStorage.getItem(getMealStorageKey())
-    if (!raw) {
-      mealList.value = []
-      return
-    }
+    if (!raw) return
     const parsed = JSON.parse(raw)
-    mealList.value = Array.isArray(parsed) ? parsed : []
+    if (Array.isArray(parsed)) {
+      mealList.value = parsed
+    }
   } catch {
-    mealList.value = []
+    // 忽略解析例外
   }
 }
 
-const saveMealRecords = () => {
+const saveMealRecordsLocal = () => {
   try {
     localStorage.setItem(getMealStorageKey(), JSON.stringify(mealList.value))
   } catch {
     // 忽略儲存例外
   }
+}
+
+const syncMealsFromCloud = async () => {
+  loadMealRecordsLocal()
+  if (!userPhone.value) return
+  isSyncingMeals.value = true
+  try {
+    const url = `${API_BASE_URL}/api/meals?phone=${encodeURIComponent(userPhone.value)}`
+    const res = await fetch(url)
+    if (!res.ok) return
+    const result = await res.json()
+    if (result?.status === 'success' && Array.isArray(result.data)) {
+      mealList.value = result.data
+      saveMealRecordsLocal()
+    }
+  } catch (err) {
+    console.warn('同步雲端餐點紀錄失敗，改用本地快取：', err)
+  } finally {
+    isSyncingMeals.value = false
+  }
+}
+
+const saveMealToCloud = async (record) => {
+  if (!userPhone.value) return record
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/meals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: userPhone.value,
+        record_id: record.record_id,
+        meal_name: record.meal_name,
+        created_date: record.created_date,
+        ingredients: record.ingredients
+      })
+    })
+    if (res.ok) {
+      const result = await res.json()
+      return result?.data || record
+    }
+  } catch (err) {
+    console.warn('寫入雲端餐點紀錄失敗，保留本地紀錄：', err)
+  }
+  return record
 }
 
 const openMealTab = () => {
@@ -921,11 +967,12 @@ const generateMealRecordId = () => {
   const y = now.getFullYear()
   const m = String(now.getMonth() + 1).padStart(2, '0')
   const d = String(now.getDate()).padStart(2, '0')
-  const seq = String(mealList.value.length + 1).padStart(3, '0')
-  return `REC${y}${m}${d}${seq}`
+  const rand = String(Math.floor(Math.random() * 900) + 100)
+  return `REC${y}${m}${d}${rand}`
 }
 
-const submitMealRecord = () => {
+const submitMealRecord = async () => {
+  if (isSavingMeal.value) return
   const mealName = String(mealForm.value.meal_name || '').trim()
   if (!mealName) {
     alert('請輸入餐點名稱（最多 20 字元）')
@@ -945,27 +992,43 @@ const submitMealRecord = () => {
     return
   }
 
-  const record = {
-    record_id: generateMealRecordId(),
-    meal_name: mealName.slice(0, 20),
-    created_date: getTodayFormatted(),
-    ingredients: validIngredients
+  isSavingMeal.value = true
+  try {
+    const draftRecord = {
+      record_id: generateMealRecordId(),
+      meal_name: mealName.slice(0, 20),
+      created_date: getTodayFormatted(),
+      ingredients: validIngredients
+    }
+
+    const savedRecord = await saveMealToCloud(draftRecord)
+    mealList.value.unshift(savedRecord)
+    saveMealRecordsLocal()
+
+    mealForm.value = {
+      meal_name: '',
+      ingredients: [{ ingredient_name: '', portion_amount: 150, unit: 'g' }]
+    }
+
+    currentTab.value = 'plan'
+  } finally {
+    isSavingMeal.value = false
   }
-
-  mealList.value.unshift(record)
-  saveMealRecords()
-
-  mealForm.value = {
-    meal_name: '',
-    ingredients: [{ ingredient_name: '', portion_amount: 150, unit: 'g' }]
-  }
-
-  currentTab.value = 'plan'
 }
 
-const deleteMealRecord = (recordId) => {
+const deleteMealRecord = async (recordId) => {
+  if (userPhone.value && recordId) {
+    try {
+      const url = `${API_BASE_URL}/api/meals/${encodeURIComponent(
+        recordId
+      )}?phone=${encodeURIComponent(userPhone.value)}`
+      await fetch(url, { method: 'DELETE' })
+    } catch (err) {
+      console.warn('刪除雲端餐點紀錄失敗：', err)
+    }
+  }
   mealList.value = mealList.value.filter((item) => item.record_id !== recordId)
-  saveMealRecords()
+  saveMealRecordsLocal()
 }
 
 const TRACK_CATEGORY_MAP = {
@@ -2011,13 +2074,15 @@ watch(currentTab, async (newTab, oldTab) => {
     if (newTab === 'invoices' || newTab === 'home') {
       await syncInvoicesFromCloud()
     }
+    if (newTab === 'plan' || newTab === 'home') {
+      await syncMealsFromCloud()
+    }
   }
 })
 
 onMounted(async () => {
   loadUserSession()
-  loadMealRecords()
-  await syncInvoicesFromCloud()
+  await Promise.all([syncInvoicesFromCloud(), syncMealsFromCloud()])
   if (currentTab.value === 'scan') {
     startCameraScanner()
   }
@@ -3830,9 +3895,14 @@ input:checked + .slider:before { transform: translateX(20px); }
   transition: all 0.2s;
 }
 
-.official-confirm-passbook-btn:hover {
+.official-confirm-passbook-btn:hover:not(:disabled) {
   background-color: #7c5dfa;
   color: #ffffff;
+}
+
+.official-confirm-passbook-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .official-modal-delete-btn {
