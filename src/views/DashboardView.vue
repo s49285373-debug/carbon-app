@@ -600,20 +600,31 @@
           <div class="passbook-top-bar">
             <span class="passbook-topbar-spacer"></span>
             <span class="passbook-bar-title">已新增餐點</span>
-            <button class="passbook-icon-btn" @click="openMealTab" title="新增餐點">＋</button>
+            <span class="passbook-topbar-spacer"></span>
           </div>
 
           <div class="passbook-body">
-            <div class="meal-list-stack" v-if="mealList.length > 0">
-              <div class="meal-record-card" v-for="meal in mealList" :key="meal.record_id">
+            <div class="period-selector">
+              <button class="period-arrow-btn" @click="prevMealPeriod">&lt;</button>
+              <span class="period-text">{{ mealPeriods[currentMealPeriodIndex] }}</span>
+              <button class="period-arrow-btn" @click="nextMealPeriod">&gt;</button>
+            </div>
+
+            <div class="meal-list-stack" v-if="filteredMeals.length > 0">
+              <div
+                class="meal-record-card is-clickable"
+                v-for="meal in filteredMeals"
+                :key="meal.record_id"
+                @click="openMealDetail(meal)"
+              >
                 <div class="meal-record-top">
-                  <span class="meal-record-id">{{ meal.record_id }}</span>
-                  <span class="meal-record-date">{{ meal.created_date }}</span>
+                  <span>{{ meal.created_date }}</span>
+                  <span class="tag-items">{{ meal.ingredients.length }} 項食材</span>
                 </div>
 
                 <div class="meal-record-main">
                   <div class="meal-record-title">{{ meal.meal_name }}</div>
-                  <span class="tag-items">{{ meal.ingredients.length }} 項食材</span>
+                  <span class="meal-detail-hint">查看內容 &gt;</span>
                 </div>
 
                 <div class="meal-record-ingredients">
@@ -625,16 +636,11 @@
                     {{ ing.ingredient_name }} {{ ing.portion_amount }}{{ ing.unit }}
                   </span>
                 </div>
-
-                <div class="meal-record-bottom">
-                  <span class="meal-cost-text">建立日期：{{ meal.created_date }}</span>
-                  <button type="button" class="tag-delete-btn" @click="deleteMealRecord(meal.record_id)">刪除</button>
-                </div>
               </div>
             </div>
 
             <div v-else class="empty-invoice-state">
-              <p>{{ isSyncingMeals ? '正在同步雲端餐點紀錄...' : '尚無已新增的餐點紀錄' }}</p>
+              <p>{{ isSyncingMeals ? '正在同步雲端餐點紀錄...' : '此期尚無已新增的餐點紀錄' }}</p>
               <div v-if="!isSyncingMeals" class="empty-action-group">
                 <button class="primary-action-btn" @click="openMealTab">前往新增餐點</button>
               </div>
@@ -676,6 +682,44 @@
       </template>
 
     </main>
+
+    <!-- 餐點明細檢視彈窗 -->
+    <div v-if="selectedMealDetail" class="manual-modal-overlay" @click.self="selectedMealDetail = null">
+      <div class="manual-modal-card receipt-detail-modal">
+        <div class="detail-top-header">
+          <span class="detail-period-badge">{{ formatRocPeriodBadge(selectedMealDetail.created_date) }}</span>
+          <h4 class="detail-invoice-no">{{ selectedMealDetail.meal_name }}</h4>
+          <p class="detail-date-line">建立日期：{{ selectedMealDetail.created_date }}</p>
+        </div>
+
+        <div class="detail-meta-box">
+          <p><strong>餐點編號：</strong>{{ selectedMealDetail.record_id }}</p>
+          <p><strong>食材品項數：</strong>{{ selectedMealDetail.ingredients.length }} 項</p>
+        </div>
+
+        <div class="detail-items-section" v-if="selectedMealDetail.ingredients && selectedMealDetail.ingredients.length > 0">
+          <div class="detail-items-head">
+            <span>食材名稱</span>
+            <span>份量</span>
+            <span>單位</span>
+          </div>
+          <div
+            class="detail-item-row"
+            v-for="(ing, idx) in selectedMealDetail.ingredients"
+            :key="idx"
+          >
+            <span class="detail-item-name">{{ ing.ingredient_name }}</span>
+            <span class="detail-item-qty">{{ ing.portion_amount }}</span>
+            <span class="detail-item-amt">{{ ing.unit }}</span>
+          </div>
+        </div>
+
+        <div class="modal-btn-row">
+          <button class="delete-modal-btn" @click="deleteMealRecord(selectedMealDetail.record_id)">刪除此筆</button>
+          <button class="primary-action-btn" @click="selectedMealDetail = null">關閉</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 發票明細檢視彈窗 -->
     <div v-if="selectedInvoiceDetail" class="manual-modal-overlay" @click.self="selectedInvoiceDetail = null">
@@ -820,11 +864,15 @@ const LEFT_WAIT_RIGHT_MS = 1800
 
 const periods = ['115年07–08月', '115年09–10月', '115年11–12月']
 const currentPeriodIndex = ref(2)
+const mealPeriods = ['115年07–08月', '115年09–10月', '115年11–12月']
+const currentMealPeriodIndex = ref(2)
+
 const showSearchBar = ref(false)
 const searchKeyword = ref('')
 const sourceFilter = ref('all')
 const sortDesc = ref(true)
 const selectedInvoiceDetail = ref(null)
+const selectedMealDetail = ref(null)
 const invoiceList = ref([])
 
 const mealList = ref([])
@@ -972,6 +1020,10 @@ const submitMealRecord = async () => {
   }
 }
 
+const openMealDetail = (meal) => {
+  selectedMealDetail.value = meal
+}
+
 const deleteMealRecord = async (recordId) => {
   if (userPhone.value && recordId) {
     try {
@@ -985,6 +1037,22 @@ const deleteMealRecord = async (recordId) => {
   }
   mealList.value = mealList.value.filter((item) => item.record_id !== recordId)
   saveMealRecordsLocal()
+  if (selectedMealDetail.value && selectedMealDetail.value.record_id === recordId) {
+    selectedMealDetail.value = null
+  }
+}
+
+const filteredMeals = computed(() => {
+  const activePeriod = mealPeriods[currentMealPeriodIndex.value]
+  return mealList.value.filter((m) => formatRocPeriodBadge(m.created_date) === activePeriod)
+})
+
+const prevMealPeriod = () => {
+  if (currentMealPeriodIndex.value > 0) currentMealPeriodIndex.value--
+}
+
+const nextMealPeriod = () => {
+  if (currentMealPeriodIndex.value < mealPeriods.length - 1) currentMealPeriodIndex.value++
 }
 
 const TRACK_CATEGORY_MAP = {
@@ -2557,23 +2625,28 @@ const handleLogout = async () => {
   border: 1px solid #e5e7eb;
   background-color: #f9fafb;
   border-radius: 14px;
-  padding: 0.9rem 1rem;
+  padding: 0.95rem 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.meal-record-card.is-clickable {
+  cursor: pointer;
+}
+
+.meal-record-card.is-clickable:hover {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
 }
 
 .meal-record-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: #6b7280;
-}
-
-.meal-record-id {
-  font-weight: 700;
-  color: #047857;
 }
 
 .meal-record-main {
@@ -2584,9 +2657,16 @@ const handleLogout = async () => {
 }
 
 .meal-record-title {
-  font-size: 1rem;
+  font-size: 1.02rem;
   font-weight: 700;
   color: #111827;
+}
+
+.meal-detail-hint {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #047857;
+  white-space: nowrap;
 }
 
 .meal-record-ingredients {
@@ -2602,18 +2682,6 @@ const handleLogout = async () => {
   font-size: 0.78rem;
   padding: 0.18rem 0.55rem;
   border-radius: 999px;
-}
-
-.meal-record-bottom {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.82rem;
-  color: #4b5563;
-}
-
-.meal-cost-text {
-  font-weight: 600;
 }
 
 .passbook-wrapper {
