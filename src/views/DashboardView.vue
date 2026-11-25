@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard-container" :class="{ 'scan-mode': currentTab === 'scan' || currentTab === 'manual' }">
+  <div class="dashboard-container" :class="{ 'scan-mode': currentTab === 'scan' || currentTab === 'manual' || currentTab === 'meal' }">
 
     <!-- 頂部導覽列：僅在「首頁 (home)」時顯示 -->
     <header class="header" v-if="currentTab === 'home'">
@@ -61,6 +61,17 @@
                 </div>
               </div>
               <button class="action-plus-btn" @click="openManualTab">+</button>
+            </div>
+
+            <div class="task-card">
+              <div class="task-info">
+                <div class="task-icon yellow-bg">🍱</div>
+                <div>
+                  <h4>新增餐點</h4>
+                  <p>輸入餐點名稱、食材品項與份量，估算碳足跡與隱形碳成本</p>
+                </div>
+              </div>
+              <button class="action-plus-btn" @click="openMealTab">+</button>
             </div>
 
             <div class="task-card">
@@ -329,7 +340,7 @@
         </div>
       </template>
 
-      <!-- 4. 【手動輸入（編輯）】獨立畫面：完全比照指定截圖欄位 -->
+      <!-- 4. 【手動輸入（編輯）】獨立畫面 -->
       <template v-if="currentTab === 'manual'">
         <div class="scanner-wrapper is-trad-editor">
           <div class="scanner-top-bar official-editor-header">
@@ -499,25 +510,175 @@
         </div>
       </template>
 
-      <!-- 5. 【計畫】分頁內容 -->
+      <!-- 4-B. 【新增餐點／食材】獨立畫面 -->
+      <template v-if="currentTab === 'meal'">
+        <div class="scanner-wrapper is-trad-editor">
+          <div class="scanner-top-bar official-editor-header">
+            <button
+              class="scanner-text-btn"
+              @click="currentTab = previousTabBeforeMeal"
+            >
+              &lt; 返回
+            </button>
+            <span class="scanner-bar-title">新增餐點</span>
+            <span class="scanner-topbar-spacer"></span>
+          </div>
+
+          <div class="official-editor-body">
+            <div class="official-field">
+              <div class="official-label-row">
+                <label class="official-label">
+                  <span>餐點名稱 <span class="official-req">*</span> <span class="official-count">{{ (mealForm.meal_name || '').length }}/20</span></span>
+                </label>
+              </div>
+              <input
+                type="text"
+                maxlength="20"
+                v-model="mealForm.meal_name"
+                placeholder="例如：蒜泥白肉套餐"
+                class="official-control"
+              />
+            </div>
+
+            <div class="official-items-block">
+              <div class="official-items-title">食材品項與份量</div>
+
+              <div
+                v-for="(ing, idx) in mealForm.ingredients"
+                :key="idx"
+                class="official-item-box"
+              >
+                <div class="official-item-top">
+                  <span>食材 {{ idx + 1 }}</span>
+                  <button
+                    type="button"
+                    class="official-item-del"
+                    @click="removeMealIngredientRow(idx)"
+                    v-if="mealForm.ingredients.length > 1"
+                  >
+                    移除
+                  </button>
+                </div>
+
+                <input
+                  type="text"
+                  maxlength="30"
+                  v-model="ing.ingredient_name"
+                  list="carbon-ingredient-options"
+                  placeholder="輸入或選擇食材（如：國產豬肉、白飯、青菜）"
+                  class="official-control official-item-name"
+                />
+
+                <div class="official-item-grid">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    v-model.number="ing.portion_amount"
+                    placeholder="份量（如 150 或 1）"
+                    class="official-control"
+                  />
+                  <select v-model="ing.unit" class="official-control official-select">
+                    <option value="g">公克 (g)</option>
+                    <option value="份">份</option>
+                  </select>
+                </div>
+              </div>
+
+              <datalist id="carbon-ingredient-options">
+                <option v-for="(cfg, name) in INGREDIENT_CARBON_FACTORS" :key="name" :value="name"></option>
+              </datalist>
+
+              <button type="button" class="official-add-item-btn" @click="addMealIngredientRow">
+                <span class="official-plus-circle">+</span>
+                <span>新增食材品項</span>
+              </button>
+
+              <div class="meal-preview-box">
+                <div class="meal-preview-row">
+                  <span>預估碳足跡數值</span>
+                  <strong>{{ previewMealCalc.carbonFootprintKg }} kg CO2e</strong>
+                </div>
+                <div class="meal-preview-row">
+                  <span>預估隱形碳成本</span>
+                  <strong>TWD {{ previewMealCalc.hiddenCarbonCost.toLocaleString() }}</strong>
+                </div>
+                <div class="meal-preview-hint">
+                  💡 預設單位為 g（100g 換算係數）；選「份」時以 1 份＝150g 估算。
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="official-confirm-passbook-btn"
+                @click="submitMealRecord"
+              >
+                確認儲存至餐點清單
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- 5. 【計畫／餐點清單列表】分頁內容 -->
       <template v-if="currentTab === 'plan'">
         <section class="page-card">
-          <h3 class="section-title mb-3 text-dark">📋 消費紀錄摘要</h3>
+          <div class="meal-section-header">
+            <h3 class="section-title mb-3 text-dark">🍱 個人化介面－餐點清單列表</h3>
+            <button class="action-go-btn" @click="openMealTab">＋ 新增餐點</button>
+          </div>
+
           <div class="ongoing-card mb-3">
             <div class="ongoing-header">
               <div class="task-info">
-                <div class="task-icon yellow-bg">🧾</div>
+                <div class="task-icon yellow-bg">🌱</div>
                 <div>
-                  <h4>本期發票登錄進度</h4>
-                  <p class="ongoing-desc">目前已累積 {{ invoiceList.length }} 張發票，總金額 TWD {{ totalAmountSum.toLocaleString() }}。</p>
+                  <h4>餐點碳足跡盤查摘要</h4>
+                  <p class="ongoing-desc">
+                    已記錄 {{ mealList.length }} 筆餐點，累積碳足跡 {{ totalMealCarbonKg.toFixed(2) }} kg CO2e（隱形碳成本 TWD {{ totalHiddenCarbonCost.toLocaleString() }}）。
+                  </p>
                 </div>
               </div>
-              <span class="badge-tag">{{ invoiceList.length }} 張</span>
+              <span class="badge-tag">{{ mealList.length }} 筆</span>
             </div>
             <div class="ongoing-footer">
-              <span>已記錄商品：<strong>{{ totalItemsSum }} 項</strong></span>
+              <span>發票累積：<strong>{{ invoiceList.length }} 張 / TWD {{ totalAmountSum.toLocaleString() }}</strong></span>
               <button class="action-go-btn" @click="currentTab = 'invoices'">查看存摺</button>
             </div>
+          </div>
+
+          <div class="meal-list-stack" v-if="mealList.length > 0">
+            <div class="meal-record-card" v-for="meal in mealList" :key="meal.record_id">
+              <div class="meal-record-top">
+                <span class="meal-record-id">{{ meal.record_id }}</span>
+                <span class="meal-record-date">{{ meal.created_date }}</span>
+              </div>
+
+              <div class="meal-record-main">
+                <div class="meal-record-title">{{ meal.meal_name }}</div>
+                <div class="meal-record-carbon">{{ Number(meal.carbon_footprint_kg).toFixed(2) }} kg CO2e</div>
+              </div>
+
+              <div class="meal-record-ingredients">
+                <span
+                  v-for="(ing, i) in meal.ingredients"
+                  :key="i"
+                  class="meal-ing-chip"
+                >
+                  {{ ing.ingredient_name }} {{ ing.portion_amount }}{{ ing.unit }}
+                </span>
+              </div>
+
+              <div class="meal-record-bottom">
+                <span class="meal-cost-text">隱形碳成本：TWD {{ Number(meal.hidden_carbon_cost || 0).toLocaleString() }}</span>
+                <button type="button" class="tag-delete-btn" @click="deleteMealRecord(meal.record_id)">刪除</button>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="empty-invoice-state">
+            <p>尚無餐點碳足跡紀錄，可點擊「新增餐點」建立第一筆紀錄。</p>
+            <button class="primary-action-btn" @click="openMealTab">新增餐點</button>
           </div>
         </section>
       </template>
@@ -625,8 +786,8 @@
       </div>
     </div>
 
-    <!-- 底部固定導覽列：進入掃描發票 (scan) 或手動輸入 (manual) 時隱藏 -->
-    <nav class="bottom-nav" v-if="currentTab !== 'scan' && currentTab !== 'manual'">
+    <!-- 底部固定導覽列 -->
+    <nav class="bottom-nav" v-if="currentTab !== 'scan' && currentTab !== 'manual' && currentTab !== 'meal'">
       <div class="nav-item" :class="{ active: currentTab === 'home' }" @click="currentTab = 'home'">
         <span class="nav-icon">🏠</span>
         <span class="nav-label">首頁</span>
@@ -641,7 +802,7 @@
       </div>
       <div class="nav-item" :class="{ active: currentTab === 'plan' }" @click="currentTab = 'plan'">
         <span class="nav-icon">📊</span>
-        <span class="nav-label">計畫</span>
+        <span class="nav-label">餐點清單</span>
       </div>
       <div class="nav-item" :class="{ active: currentTab === 'member' }" @click="currentTab = 'member'">
         <span class="nav-icon">👤</span>
@@ -662,6 +823,7 @@ const nickname = ref('使用者')
 const userPhone = ref('')
 const currentTab = ref('home')
 const previousTabBeforeManual = ref('home')
+const previousTabBeforeMeal = ref('home')
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
 
@@ -702,6 +864,156 @@ const sourceFilter = ref('all')
 const sortDesc = ref(true)
 const selectedInvoiceDetail = ref(null)
 const invoiceList = ref([])
+
+// 食材碳係數表（kg CO2e / 100g）與隱形碳成本單價（TWD / kg CO2e）
+const INGREDIENT_CARBON_FACTORS = {
+  '國產豬肉': 1.25,
+  '牛肉': 3.60,
+  '雞肉': 0.69,
+  '白飯': 0.27,
+  '青菜': 0.12,
+  '雞蛋': 0.48,
+  '豆腐': 0.20,
+  '蒜泥醬料': 0.15
+}
+const HIDDEN_CARBON_COST_PER_KG = 120
+
+const mealList = ref([])
+const mealForm = ref({
+  meal_name: '',
+  ingredients: [
+    { ingredient_name: '', portion_amount: 150, unit: 'g' }
+  ]
+})
+
+const MEAL_STORAGE_KEY_PREFIX = 'carbon_meal_records_'
+const getMealStorageKey = () => `${MEAL_STORAGE_KEY_PREFIX}${userPhone.value || 'guest'}`
+
+const loadMealRecords = () => {
+  try {
+    const raw = localStorage.getItem(getMealStorageKey())
+    if (!raw) {
+      mealList.value = []
+      return
+    }
+    const parsed = JSON.parse(raw)
+    mealList.value = Array.isArray(parsed) ? parsed : []
+  } catch {
+    mealList.value = []
+  }
+}
+
+const saveMealRecords = () => {
+  try {
+    localStorage.setItem(getMealStorageKey(), JSON.stringify(mealList.value))
+  } catch {
+    // 忽略儲存例外
+  }
+}
+
+const openMealTab = () => {
+  if (currentTab.value !== 'meal') {
+    previousTabBeforeMeal.value = currentTab.value
+  }
+  currentTab.value = 'meal'
+}
+
+const addMealIngredientRow = () => {
+  mealForm.value.ingredients.push({
+    ingredient_name: '',
+    portion_amount: 100,
+    unit: 'g'
+  })
+}
+
+const removeMealIngredientRow = (idx) => {
+  if (mealForm.value.ingredients.length > 1) {
+    mealForm.value.ingredients.splice(idx, 1)
+  }
+}
+
+const calculateIngredientsCarbon = (ingredients = []) => {
+  let totalKg = 0
+  for (const ing of ingredients) {
+    const name = String(ing.ingredient_name || '').trim()
+    const amount = Number(ing.portion_amount || 0)
+    if (!name || !Number.isFinite(amount) || amount <= 0) continue
+
+    const grams = ing.unit === '份' ? amount * 150 : amount
+    const factorPer100g = INGREDIENT_CARBON_FACTORS[name] ?? 0.35
+    totalKg += (grams / 100) * factorPer100g
+  }
+  const carbonFootprintKg = Number(totalKg.toFixed(2))
+  const hiddenCarbonCost = Math.round(carbonFootprintKg * HIDDEN_CARBON_COST_PER_KG)
+  return { carbonFootprintKg, hiddenCarbonCost }
+}
+
+const previewMealCalc = computed(() => {
+  return calculateIngredientsCarbon(mealForm.value.ingredients)
+})
+
+const totalMealCarbonKg = computed(() => {
+  return mealList.value.reduce((sum, item) => sum + Number(item.carbon_footprint_kg || 0), 0)
+})
+
+const totalHiddenCarbonCost = computed(() => {
+  return mealList.value.reduce((sum, item) => sum + Number(item.hidden_carbon_cost || 0), 0)
+})
+
+const generateMealRecordId = () => {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const seq = String(mealList.value.length + 1).padStart(3, '0')
+  return `REC${y}${m}${d}${seq}`
+}
+
+const submitMealRecord = () => {
+  const mealName = String(mealForm.value.meal_name || '').trim()
+  if (!mealName) {
+    alert('請輸入餐點名稱（最多 20 字元）')
+    return
+  }
+
+  const validIngredients = (mealForm.value.ingredients || [])
+    .map((ing) => ({
+      ingredient_name: String(ing.ingredient_name || '').trim(),
+      portion_amount: Number(ing.portion_amount || 0),
+      unit: ing.unit === '份' ? '份' : 'g'
+    }))
+    .filter((ing) => ing.ingredient_name && Number.isFinite(ing.portion_amount) && ing.portion_amount > 0)
+
+  if (validIngredients.length === 0) {
+    alert('請至少輸入一項食材品項，且食用份量需大於 0')
+    return
+  }
+
+  const { carbonFootprintKg, hiddenCarbonCost } = calculateIngredientsCarbon(validIngredients)
+  const record = {
+    record_id: generateMealRecordId(),
+    meal_name: mealName.slice(0, 20),
+    created_date: getTodayFormatted(),
+    ingredients: validIngredients,
+    carbon_footprint_kg: carbonFootprintKg,
+    hidden_carbon_cost: hiddenCarbonCost
+  }
+
+  mealList.value.unshift(record)
+  saveMealRecords()
+
+  mealForm.value = {
+    meal_name: '',
+    ingredients: [{ ingredient_name: '', portion_amount: 150, unit: 'g' }]
+  }
+
+  currentTab.value = 'plan'
+}
+
+const deleteMealRecord = (recordId) => {
+  mealList.value = mealList.value.filter((item) => item.record_id !== recordId)
+  saveMealRecords()
+}
 
 const TRACK_CATEGORY_MAP = {
   FT: '一般消費',
@@ -1751,6 +2063,7 @@ watch(currentTab, async (newTab, oldTab) => {
 
 onMounted(async () => {
   loadUserSession()
+  loadMealRecords()
   await syncInvoicesFromCloud()
   if (currentTab.value === 'scan') {
     startCameraScanner()
@@ -2791,6 +3104,114 @@ const handleLogout = async () => {
   font-size: 0.85rem;
   color: #6b7280;
   margin: 0;
+}
+
+.meal-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.meal-preview-box {
+  background-color: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  color: #065f46;
+  font-size: 0.9rem;
+}
+
+.meal-preview-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.meal-preview-hint {
+  font-size: 0.78rem;
+  color: #047857;
+  margin-top: 0.15rem;
+}
+
+.meal-list-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.meal-record-card {
+  border: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.meal-record-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.meal-record-id {
+  font-weight: 700;
+  color: #047857;
+}
+
+.meal-record-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.meal-record-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.meal-record-carbon {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #065f46;
+  white-space: nowrap;
+}
+
+.meal-record-ingredients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.meal-ing-chip {
+  background-color: #ffffff;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  font-size: 0.78rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+}
+
+.meal-record-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: #4b5563;
+}
+
+.meal-cost-text {
+  font-weight: 600;
 }
 
 .ongoing-card {
