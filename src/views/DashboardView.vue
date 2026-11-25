@@ -68,7 +68,7 @@
                 <div class="task-icon yellow-bg">🍱</div>
                 <div>
                   <h4>新增餐點</h4>
-                  <p>輸入餐點名稱、食材品項與份量，估算碳足跡與隱形碳成本</p>
+                  <p>輸入餐點名稱、食材品項與食用份量，建立個人餐點紀錄</p>
                 </div>
               </div>
               <button class="action-plus-btn" @click="openMealTab">+</button>
@@ -564,7 +564,7 @@
                   type="text"
                   maxlength="30"
                   v-model="ing.ingredient_name"
-                  list="carbon-ingredient-options"
+                  list="meal-ingredient-options"
                   placeholder="輸入或選擇食材（如：國產豬肉、白飯、青菜）"
                   class="official-control official-item-name"
                 />
@@ -585,28 +585,14 @@
                 </div>
               </div>
 
-              <datalist id="carbon-ingredient-options">
-                <option v-for="(cfg, name) in INGREDIENT_CARBON_FACTORS" :key="name" :value="name"></option>
+              <datalist id="meal-ingredient-options">
+                <option v-for="name in COMMON_INGREDIENTS" :key="name" :value="name"></option>
               </datalist>
 
               <button type="button" class="official-add-item-btn" @click="addMealIngredientRow">
                 <span class="official-plus-circle">+</span>
                 <span>新增食材品項</span>
               </button>
-
-              <div class="meal-preview-box">
-                <div class="meal-preview-row">
-                  <span>預估碳足跡數值</span>
-                  <strong>{{ previewMealCalc.carbonFootprintKg }} kg CO2e</strong>
-                </div>
-                <div class="meal-preview-row">
-                  <span>預估隱形碳成本</span>
-                  <strong>TWD {{ previewMealCalc.hiddenCarbonCost.toLocaleString() }}</strong>
-                </div>
-                <div class="meal-preview-hint">
-                  💡 預設單位為 g（100g 換算係數）；選「份」時以 1 份＝150g 估算。
-                </div>
-              </div>
 
               <button
                 type="button"
@@ -620,7 +606,7 @@
         </div>
       </template>
 
-      <!-- 5. 【計畫／餐點清單列表】分頁內容 -->
+      <!-- 5. 【餐點清單列表】分頁內容 -->
       <template v-if="currentTab === 'plan'">
         <section class="page-card">
           <div class="meal-section-header">
@@ -631,11 +617,11 @@
           <div class="ongoing-card mb-3">
             <div class="ongoing-header">
               <div class="task-info">
-                <div class="task-icon yellow-bg">🌱</div>
+                <div class="task-icon yellow-bg">🍽️</div>
                 <div>
-                  <h4>餐點碳足跡盤查摘要</h4>
+                  <h4>餐點紀錄摘要</h4>
                   <p class="ongoing-desc">
-                    已記錄 {{ mealList.length }} 筆餐點，累積碳足跡 {{ totalMealCarbonKg.toFixed(2) }} kg CO2e（隱形碳成本 TWD {{ totalHiddenCarbonCost.toLocaleString() }}）。
+                    目前已建立 {{ mealList.length }} 筆餐點與食材紀錄。
                   </p>
                 </div>
               </div>
@@ -656,7 +642,7 @@
 
               <div class="meal-record-main">
                 <div class="meal-record-title">{{ meal.meal_name }}</div>
-                <div class="meal-record-carbon">{{ Number(meal.carbon_footprint_kg).toFixed(2) }} kg CO2e</div>
+                <span class="tag-items">{{ meal.ingredients.length }} 項食材</span>
               </div>
 
               <div class="meal-record-ingredients">
@@ -670,14 +656,14 @@
               </div>
 
               <div class="meal-record-bottom">
-                <span class="meal-cost-text">隱形碳成本：TWD {{ Number(meal.hidden_carbon_cost || 0).toLocaleString() }}</span>
+                <span class="meal-cost-text">記錄編號：{{ meal.record_id }}</span>
                 <button type="button" class="tag-delete-btn" @click="deleteMealRecord(meal.record_id)">刪除</button>
               </div>
             </div>
           </div>
 
           <div v-else class="empty-invoice-state">
-            <p>尚無餐點碳足跡紀錄，可點擊「新增餐點」建立第一筆紀錄。</p>
+            <p>尚無餐點紀錄，可點擊「新增餐點」建立第一筆紀錄。</p>
             <button class="primary-action-btn" @click="openMealTab">新增餐點</button>
           </div>
         </section>
@@ -865,18 +851,16 @@ const sortDesc = ref(true)
 const selectedInvoiceDetail = ref(null)
 const invoiceList = ref([])
 
-// 食材碳係數表（kg CO2e / 100g）與隱形碳成本單價（TWD / kg CO2e）
-const INGREDIENT_CARBON_FACTORS = {
-  '國產豬肉': 1.25,
-  '牛肉': 3.60,
-  '雞肉': 0.69,
-  '白飯': 0.27,
-  '青菜': 0.12,
-  '雞蛋': 0.48,
-  '豆腐': 0.20,
-  '蒜泥醬料': 0.15
-}
-const HIDDEN_CARBON_COST_PER_KG = 120
+const COMMON_INGREDIENTS = [
+  '國產豬肉',
+  '牛肉',
+  '雞肉',
+  '白飯',
+  '青菜',
+  '雞蛋',
+  '豆腐',
+  '蒜泥醬料'
+]
 
 const mealList = ref([])
 const mealForm = ref({
@@ -932,34 +916,6 @@ const removeMealIngredientRow = (idx) => {
   }
 }
 
-const calculateIngredientsCarbon = (ingredients = []) => {
-  let totalKg = 0
-  for (const ing of ingredients) {
-    const name = String(ing.ingredient_name || '').trim()
-    const amount = Number(ing.portion_amount || 0)
-    if (!name || !Number.isFinite(amount) || amount <= 0) continue
-
-    const grams = ing.unit === '份' ? amount * 150 : amount
-    const factorPer100g = INGREDIENT_CARBON_FACTORS[name] ?? 0.35
-    totalKg += (grams / 100) * factorPer100g
-  }
-  const carbonFootprintKg = Number(totalKg.toFixed(2))
-  const hiddenCarbonCost = Math.round(carbonFootprintKg * HIDDEN_CARBON_COST_PER_KG)
-  return { carbonFootprintKg, hiddenCarbonCost }
-}
-
-const previewMealCalc = computed(() => {
-  return calculateIngredientsCarbon(mealForm.value.ingredients)
-})
-
-const totalMealCarbonKg = computed(() => {
-  return mealList.value.reduce((sum, item) => sum + Number(item.carbon_footprint_kg || 0), 0)
-})
-
-const totalHiddenCarbonCost = computed(() => {
-  return mealList.value.reduce((sum, item) => sum + Number(item.hidden_carbon_cost || 0), 0)
-})
-
 const generateMealRecordId = () => {
   const now = new Date()
   const y = now.getFullYear()
@@ -989,14 +945,11 @@ const submitMealRecord = () => {
     return
   }
 
-  const { carbonFootprintKg, hiddenCarbonCost } = calculateIngredientsCarbon(validIngredients)
   const record = {
     record_id: generateMealRecordId(),
     meal_name: mealName.slice(0, 20),
     created_date: getTodayFormatted(),
-    ingredients: validIngredients,
-    carbon_footprint_kg: carbonFootprintKg,
-    hidden_carbon_cost: hiddenCarbonCost
+    ingredients: validIngredients
   }
 
   mealList.value.unshift(record)
@@ -3114,30 +3067,6 @@ const handleLogout = async () => {
   margin-bottom: 0.75rem;
 }
 
-.meal-preview-box {
-  background-color: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 12px;
-  padding: 0.85rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  color: #065f46;
-  font-size: 0.9rem;
-}
-
-.meal-preview-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.meal-preview-hint {
-  font-size: 0.78rem;
-  color: #047857;
-  margin-top: 0.15rem;
-}
-
 .meal-list-stack {
   display: flex;
   flex-direction: column;
@@ -3178,13 +3107,6 @@ const handleLogout = async () => {
   font-size: 1rem;
   font-weight: 700;
   color: #111827;
-}
-
-.meal-record-carbon {
-  font-size: 0.95rem;
-  font-weight: 800;
-  color: #065f46;
-  white-space: nowrap;
 }
 
 .meal-record-ingredients {
