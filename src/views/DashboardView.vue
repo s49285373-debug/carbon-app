@@ -693,8 +693,7 @@
         </div>
 
         <div class="detail-meta-box">
-          <p><strong>餐點編號：</strong>{{ selectedMealDetail.record_id }}</p>
-          <p><strong>食材品項數：</strong>{{ selectedMealDetail.ingredients.length }} 項</p>
+         <p><strong>食材品項數：</strong>{{ selectedMealDetail.ingredients.length }} 項</p>
         </div>
 
         <div class="detail-items-section" v-if="selectedMealDetail.ingredients && selectedMealDetail.ingredients.length > 0">
