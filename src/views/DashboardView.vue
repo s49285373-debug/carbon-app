@@ -20,7 +20,7 @@
         <section class="banner-card">
           <div class="banner-content">
             <h2>🧾 發票與消費紀錄帳本</h2>
-            <p>快速掃描電子發票 QR Code 或手動登錄傳統發票／消費明細，輕鬆管理每筆消費紀錄與金額。</p>
+            <p>快速掃描電子發票證明聯 QR Code 或手動登錄傳統發票／消費明細，輕鬆管理每筆消費紀錄與金額。</p>
           </div>
           <div class="banner-stats">
             <div class="mini-stat">
@@ -809,10 +809,6 @@
       <div class="nav-item" :class="{ active: currentTab === 'invoices' }" @click="currentTab = 'invoices'">
         <span class="nav-icon">🧾</span>
         <span class="nav-label">發票存摺</span>
-      </div>
-      <div class="nav-item" :class="{ active: currentTab === 'scan' }" @click="openScanTab">
-        <span class="nav-icon">📷</span>
-        <span class="nav-label">掃 QR</span>
       </div>
       <div class="nav-item" :class="{ active: currentTab === 'meals' }" @click="currentTab = 'meals'">
         <span class="nav-icon">🍱</span>
