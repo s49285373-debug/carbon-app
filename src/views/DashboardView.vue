@@ -816,7 +816,12 @@ const currentTab = ref('home')
 const previousTabBeforeManual = ref('home')
 const previousTabBeforeMeal = ref('home')
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || 'https://carbon-backend-production-fcf9bbe5.up.railway.app'
+).replace(/\/+$/, '')
+
+const totalCarbonKg = ref(0)
+const homeAlignmentCache = new Map()
 
 const viewportRef = ref(null)
 const videoRef = ref(null)
@@ -1103,6 +1108,7 @@ const submitMealRecord = async () => {
 
     mealList.value.unshift(savedRecord)
     saveMealRecordsLocal()
+    await refreshTotalCarbonKg()
 
     mealForm.value = {
       meal_name: '',
@@ -1139,6 +1145,7 @@ const deleteMealRecord = async (recordId) => {
     (item) => item.record_id !== recordId && item.id !== recordId
   )
   saveMealRecordsLocal()
+  await refreshTotalCarbonKg()
   if (
     selectedMealDetail.value &&
     (selectedMealDetail.value.record_id === recordId || selectedMealDetail.value.id === recordId)
@@ -1560,6 +1567,7 @@ const submitTraditionalInvoice = async () => {
   const saved = await saveInvoiceToCloud(record, sourceType)
   invoiceList.value.unshift(saved)
   lastExtractedInvoice.value = saved
+  await refreshTotalCarbonKg()
   resetTradEditorForm()
   currentTab.value = 'invoices'
 }
@@ -2152,6 +2160,104 @@ const toggleTorch = async () => {
   }
 }
 
+const classifyCarbonCategory = (text = '') => {
+  const s = String(text || '').toLowerCase()
+  if (/茶|咖啡|拿鐵|奶茶|綠豆沙|可可|飲料|飲品|果汁|汽水|水|豆漿/.test(s)) {
+    return 'beverage'
+  }
+  if (/筆電|手機|耳機|滑鼠|鍵盤|螢幕|充電器|3c|電子|平板|相機/.test(s)) {
+    return 'electronics'
+  }
+  if (/捷運|公車|高鐵|火車|客運|加油|停車|uber|計程車|交通|票/.test(s)) {
+    return 'transport'
+  }
+  if (/便當|餐|飯|麵|肉|蛋|菜|蔬|果|餅乾|麵包|零食|滷味|火鍋/.test(s)) {
+    return 'food'
+  }
+  return 'living'
+}
+
+const buildIngredientQuery = (name, portion, unit) => {
+  const cleanName = String(name || '').trim()
+  const u = String(unit || '').trim()
+  const uLower = u.toLowerCase()
+  if (u === '公克' || u.includes('公克') || uLower === 'g' || uLower.includes('(g)')) {
+    return { queryName: `${cleanName} ${portion}g`, queryQty: 1 }
+  }
+  if (u === '公斤' || u.includes('公斤') || uLower === 'kg' || uLower.includes('(kg)')) {
+    return { queryName: `${cleanName} ${portion * 1000}g`, queryQty: 1 }
+  }
+  if (u === '毫升' || u.includes('毫升') || uLower === 'ml' || uLower.includes('(ml)')) {
+    return { queryName: `${cleanName} ${portion}ml`, queryQty: 1 }
+  }
+  return { queryName: cleanName, queryQty: Math.max(0.01, portion) }
+}
+
+const fetchAlignedItemKg = async (itemName, quantity = 1, fallbackCategoryKey = 'food') => {
+  const cleanQty = Math.max(0.01, Number(quantity || 1))
+  const cacheKey = `${itemName}__${cleanQty}__${fallbackCategoryKey}`
+  if (homeAlignmentCache.has(cacheKey)) {
+    return homeAlignmentCache.get(cacheKey)
+  }
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/carbon/ai/align-item`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        item_name: itemName,
+        quantity: cleanQty,
+        fallback_category_key: fallbackCategoryKey
+      })
+    })
+    if (res.ok) {
+      const data = await res.json()
+      const kg = Number(data.total_kg_co2e ?? data.kg_co2e ?? 0)
+      homeAlignmentCache.set(cacheKey, kg)
+      return kg
+    }
+  } catch (err) {
+    console.warn('首頁同步碳排計算失敗：', err)
+  }
+  return 0
+}
+
+const refreshTotalCarbonKg = async () => {
+  const tasks = []
+
+  const safeInvoices = Array.isArray(invoiceList.value) ? invoiceList.value : []
+  for (const inv of safeInvoices) {
+    if (!inv || typeof inv !== 'object') continue
+    const items = getSubstantiveItems(inv.items)
+    for (const it of items) {
+      const qty = Math.max(1, Number(it.quantity || 1))
+      const cat = classifyCarbonCategory(`${it.item_name || ''} ${inv.merchant_name || ''} ${inv.category_name || ''}`)
+      tasks.push(fetchAlignedItemKg(it.item_name, qty, cat))
+    }
+  }
+
+  const safeMeals = Array.isArray(mealList.value) ? mealList.value : []
+  for (const meal of safeMeals) {
+    if (!meal || typeof meal !== 'object') continue
+    const ings = Array.isArray(meal.ingredients) ? meal.ingredients : []
+    for (const ing of ings) {
+      const portion = Number(ing?.portion_amount || 0)
+      if (!ing?.ingredient_name || portion <= 0) continue
+      const { queryName, queryQty } = buildIngredientQuery(
+        ing.ingredient_name,
+        portion,
+        ing.unit || 'g'
+      )
+      const cat = classifyCarbonCategory(ing.ingredient_name)
+      tasks.push(fetchAlignedItemKg(queryName, queryQty, cat))
+    }
+  }
+
+  const values = await Promise.all(tasks)
+  const sum = values.reduce((acc, v) => acc + Number(v || 0), 0)
+  totalCarbonKg.value = Number(sum.toFixed(2))
+}
+
 watch(currentTab, async (newTab, oldTab) => {
   if (newTab === 'scan') {
     await startCameraScanner()
@@ -2165,12 +2271,16 @@ watch(currentTab, async (newTab, oldTab) => {
     if (newTab === 'meals' || newTab === 'home') {
       await syncMealsFromCloud()
     }
+    if (newTab === 'home') {
+      await refreshTotalCarbonKg()
+    }
   }
 })
 
 onMounted(async () => {
   loadUserSession()
   await Promise.all([syncInvoicesFromCloud(), syncMealsFromCloud()])
+  await refreshTotalCarbonKg()
   if (currentTab.value === 'scan') {
     startCameraScanner()
   }
@@ -2211,112 +2321,11 @@ const deleteInvoice = async (targetId) => {
     }
   }
   invoiceList.value = (invoiceList.value || []).filter(item => item?.id !== targetId)
+  await refreshTotalCarbonKg()
   if (selectedInvoiceDetail.value && selectedInvoiceDetail.value.id === targetId) {
     selectedInvoiceDetail.value = null
   }
 }
-
-const classifyCarbonCategory = (text = '') => {
-  const s = String(text || '').toLowerCase()
-  if (/茶|咖啡|拿鐵|奶茶|綠豆沙|可可|飲料|飲品|果汁|汽水|水|豆漿/.test(s)) {
-    return 'beverage'
-  }
-  if (/筆電|手機|耳機|滑鼠|鍵盤|螢幕|充電器|3c|電子|平板|相機/.test(s)) {
-    return 'electronics'
-  }
-  if (/捷運|公車|高鐵|火車|客運|加油|停車|uber|計程車|交通|票/.test(s)) {
-    return 'transport'
-  }
-  if (/便當|餐|飯|麵|肉|蛋|菜|蔬|果|餅乾|麵包|零食|滷味|火鍋/.test(s)) {
-    return 'food'
-  }
-  return 'living'
-}
-
-const carbonCategoryRows = computed(() => {
-  const totals = {
-    utility: 0,
-    food: 0,
-    beverage: 0,
-    living: 0,
-    transport: 0,
-    electronics: 0
-  }
-
-  const safeMeals = Array.isArray(mealList.value) ? mealList.value : []
-  for (const meal of safeMeals) {
-    if (!meal || typeof meal !== 'object') continue
-    const ingList = Array.isArray(meal.ingredients) ? meal.ingredients : []
-    if (ingList.length > 0) {
-      for (const ing of ingList) {
-        if (!ing || typeof ing !== 'object') continue
-        const name = String(ing.ingredient_name || '')
-        const cat = classifyCarbonCategory(name)
-        const backendKg = Number(ing.carbon_kg || 0)
-        if (backendKg > 0) {
-          if (cat === 'beverage') {
-            totals.beverage += backendKg
-          } else {
-            totals.food += backendKg
-          }
-        } else {
-          const amt = Math.max(0, Number(ing.portion_amount || 0))
-          const factor = ing.unit === 'g' || ing.unit === '公克 (g)' ? amt / 1000 : amt * 0.25
-          if (cat === 'beverage') {
-            totals.beverage += factor * 1.2
-          } else {
-            totals.food += factor * 2.1
-          }
-        }
-      }
-    } else if (Number(meal.carbon_kg || 0) > 0) {
-      const cat = classifyCarbonCategory(meal.meal_name || '')
-      if (cat === 'beverage') {
-        totals.beverage += Number(meal.carbon_kg)
-      } else {
-        totals.food += Number(meal.carbon_kg)
-      }
-    }
-  }
-
-  const safeInvoices = Array.isArray(invoiceList.value) ? invoiceList.value : []
-  for (const inv of safeInvoices) {
-    if (!inv || typeof inv !== 'object') continue
-    const invNum = String(inv.invoice_number || '').toUpperCase()
-    const items = getSubstantiveItems(inv.items)
-    if (items.length > 0) {
-      for (const it of items) {
-        const cat = classifyCarbonCategory(`${it.item_name || ''} ${inv.merchant_name || ''}`)
-        const estKg = (Math.max(0, Number(it.amount || 0)) / 100) * 0.35
-        totals[cat] += estKg
-      }
-    } else {
-      const fallbackAmt = Math.max(0, Number(inv.total_amount || 0))
-      const estKg = (fallbackAmt / 100) * 0.35
-      if (invNum.startsWith('FG')) {
-        totals.food += estKg
-      } else {
-        const cat = classifyCarbonCategory(inv.merchant_name || '')
-        totals[cat] += estKg
-      }
-    }
-  }
-
-  return [
-    { key: 'utility', label: '水電瓦斯', kg: Number(totals.utility.toFixed(2)) },
-    { key: 'food', label: '餐飲食物', kg: Number(totals.food.toFixed(2)) },
-    { key: 'beverage', label: '樂活飲品', kg: Number(totals.beverage.toFixed(2)) },
-    { key: 'living', label: '生活民生', kg: Number(totals.living.toFixed(2)) },
-    { key: 'transport', label: '運輸交通', kg: Number(totals.transport.toFixed(2)) },
-    { key: 'electronics', label: '電子產品', kg: Number(totals.electronics.toFixed(2)) }
-  ]
-})
-
-const totalCarbonKg = computed(() => {
-  const rows = Array.isArray(carbonCategoryRows.value) ? carbonCategoryRows.value : []
-  const sum = rows.reduce((acc, row) => acc + Number(row?.kg || 0), 0)
-  return Number(sum.toFixed(2))
-})
 
 const sourceFilterLabel = computed(() => {
   if (sourceFilter.value === 'electronic') return '僅看電子發票'
@@ -2526,6 +2535,7 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
 
     lastExtractedInvoice.value = record
     invoiceList.value.unshift(record)
+    await refreshTotalCarbonKg()
     isExtracting.value = false
 
     successToastMsg.value = `已擷取 ${record.invoice_number}`
