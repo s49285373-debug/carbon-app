@@ -241,8 +241,12 @@
         </div>
 
         <div class="correct-box">
-          <label>手動校正標準碳係數類別：</label>
-          <select v-model="selectedCorrectionKey" class="select-control">
+          <label for="correction-select">手動校正標準碳係數類別：</label>
+          <select
+            id="correction-select"
+            v-model="selectedCorrectionKey"
+            class="select-control"
+          >
             <option
               v-for="opt in STANDARD_FACTOR_OPTIONS"
               :key="opt.standard_name"
@@ -267,21 +271,100 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || 'https://carbon-backend-production-fcf9bbe5.up.railway.app'
+).replace(/\/+$/, '')
 
-// 手動校正可選的標準碳係數類別（可依後端 /api/carbon/factors 同步調整）
+// 手動校正可選的標準碳係數類別（對應後端 category_key 與係數）
 const STANDARD_FACTOR_OPTIONS = [
-  { standard_name: '包裝茶飲料', category: '食品飲料', unit_factor: 0.45, source: '環境部產品碳足跡資訊網（包裝茶飲類）' },
-  { standard_name: '含乳冷熱飲品', category: '食品飲料', unit_factor: 1.10, source: '環境部產品碳足跡資訊網（含乳咖啡/奶茶）' },
-  { standard_name: '米飯類食品', category: '食品飲料', unit_factor: 0.85, source: '環境部產品碳足跡資訊網（鮮食米飯類）' },
-  { standard_name: '牛肉餐食製品', category: '食品飲料', unit_factor: 4.80, source: 'LCA 生命週期評估資料庫（紅肉類）' },
-  { standard_name: '豬肉餐食製品', category: '食品飲料', unit_factor: 1.95, source: 'LCA 生命週期評估資料庫（白肉/豬肉類）' },
-  { standard_name: '禽肉餐食製品', category: '食品飲料', unit_factor: 1.25, source: 'LCA 生命週期評估資料庫（雞肉類）' },
-  { standard_name: '蔬食與穀物類', category: '食品飲料', unit_factor: 0.42, source: '環境部產品碳足跡資訊網（農產蔬食類）' },
-  { standard_name: '瓶裝飲用水', category: '包裝耗材', unit_factor: 0.32, source: '環境部產品碳足跡資訊網（PET瓶裝水）' },
-  { standard_name: '一次性包裝與袋材', category: '包裝耗材', unit_factor: 0.28, source: '環境部產品碳足跡資訊網（塑膠/紙容器）' },
-  { standard_name: '清潔與個人日用品', category: '日用品', unit_factor: 0.95, source: '環境部產品碳足跡資訊網（家用品類）' },
-  { standard_name: '一般綜合消費（類別平均）', category: '日用品', unit_factor: 0.75, source: '系統類別平均備援係數（估算）' }
+  {
+    standard_name: '包裝茶飲料',
+    factor_code: 'CFP-BEV-001',
+    category: '食品飲料',
+    category_key: 'beverage',
+    unit_factor: 0.45,
+    source: '環境部產品碳足跡資訊網（包裝茶飲類）'
+  },
+  {
+    standard_name: '含乳冷熱飲品',
+    factor_code: 'CFP-BEV-003',
+    category: '食品飲料',
+    category_key: 'beverage',
+    unit_factor: 1.10,
+    source: '環境部產品碳足跡資訊網（含乳咖啡/奶茶）'
+  },
+  {
+    standard_name: '米飯類食品',
+    factor_code: 'CFP-FOOD-001',
+    category: '食品飲料',
+    category_key: 'food',
+    unit_factor: 0.85,
+    source: '環境部產品碳足跡資訊網（鮮食米飯類）'
+  },
+  {
+    standard_name: '牛肉餐食製品',
+    factor_code: 'CFP-FOOD-002',
+    category: '食品飲料',
+    category_key: 'food',
+    unit_factor: 4.80,
+    source: 'LCA 生命週期評估資料庫（紅肉類）'
+  },
+  {
+    standard_name: '豬肉餐食製品',
+    factor_code: 'CFP-FOOD-003',
+    category: '食品飲料',
+    category_key: 'food',
+    unit_factor: 1.95,
+    source: 'LCA 生命週期評估資料庫（白肉/豬肉類）'
+  },
+  {
+    standard_name: '禽肉餐食製品',
+    factor_code: 'CFP-FOOD-004',
+    category: '食品飲料',
+    category_key: 'food',
+    unit_factor: 1.25,
+    source: 'LCA 生命週期評估資料庫（雞肉/蛋豆類）'
+  },
+  {
+    standard_name: '蔬食與穀物類',
+    factor_code: 'CFP-FOOD-005',
+    category: '食品飲料',
+    category_key: 'food',
+    unit_factor: 0.42,
+    source: '環境部產品碳足跡資訊網（農產蔬食類）'
+  },
+  {
+    standard_name: '瓶裝飲用水',
+    factor_code: 'CFP-BEV-002',
+    category: '包裝耗材',
+    category_key: 'beverage',
+    unit_factor: 0.32,
+    source: '環境部產品碳足跡資訊網（PET瓶裝水）'
+  },
+  {
+    standard_name: '一次性包裝與袋材',
+    factor_code: 'CFP-PKG-001',
+    category: '包裝耗材',
+    category_key: 'living',
+    unit_factor: 0.28,
+    source: '環境部產品碳足跡資訊網（塑膠/紙容器）'
+  },
+  {
+    standard_name: '清潔與個人日用品',
+    factor_code: 'CFP-LIV-001',
+    category: '日用品',
+    category_key: 'living',
+    unit_factor: 0.95,
+    source: '環境部產品碳足跡資訊網（家用品類）'
+  },
+  {
+    standard_name: '一般綜合消費（類別平均）',
+    factor_code: 'CFP-GEN-001',
+    category: '日用品',
+    category_key: 'living',
+    unit_factor: 0.75,
+    source: '系統類別平均備援係數（估算）'
+  }
 ]
 
 const rangeMode = ref('month')
@@ -295,14 +378,18 @@ const onlyLowConfidence = ref(false)
 
 const allCarbonRecords = ref([])
 const selectedDetailRow = ref(null)
-const selectedCorrectionKey = ref('')
+const selectedCorrectionKey = ref(STANDARD_FACTOR_OPTIONS[0].standard_name)
 
-// 前端記憶體快取：避免同一品項/數量/備援分類短時間重複打 AI 對齊 API
 const alignmentCache = new Map()
 
 watch(selectedDetailRow, (row) => {
   if (row) {
-    selectedCorrectionKey.value = row.standard_name
+    const matchedOpt = STANDARD_FACTOR_OPTIONS.find(
+      (o) => o.standard_name === row.standard_name
+    )
+    selectedCorrectionKey.value = matchedOpt
+      ? matchedOpt.standard_name
+      : STANDARD_FACTOR_OPTIONS[0].standard_name
   }
 })
 
@@ -344,7 +431,6 @@ const normalizeDateDash = (str) => {
   return String(str || '').trim().replaceAll('/', '-').slice(0, 10)
 }
 
-// 排除折扣、折讓與無效金額列
 const isDiscountOrInvalidItem = (item) => {
   const name = String(item?.item_name || '').trim()
   const amt = Number(item?.amount || 0)
@@ -353,7 +439,6 @@ const isDiscountOrInvalidItem = (item) => {
   return /折扣|折讓|折抵|特價|調整|滿額贈|點數折/.test(name)
 }
 
-// 依品名與店家映射後端 fallback_category_key
 const resolveFallbackCategoryKey = (text = '', defaultKey = 'living') => {
   const s = String(text || '').toLowerCase()
   if (/茶|咖啡|拿鐵|奶茶|綠豆沙|可可|飲料|飲品|果汁|汽水|水|豆漿/.test(s)) {
@@ -371,7 +456,6 @@ const resolveFallbackCategoryKey = (text = '', defaultKey = 'living') => {
   return defaultKey
 }
 
-// 將後端回傳的類別 key/label 正規化為圓餅圖三大分類
 const normalizeDisplayCategory = (rawCat = '', fallbackKey = 'living') => {
   const s = String(rawCat || '').trim().toLowerCase()
   if (s.includes('食品') || s.includes('飲料') || s.includes('餐飲') || s === 'food' || s === 'beverage') {
@@ -386,7 +470,6 @@ const normalizeDisplayCategory = (rawCat = '', fallbackKey = 'living') => {
   return fallbackKey === 'food' || fallbackKey === 'beverage' ? '食品飲料' : '日用品'
 }
 
-// 呼叫後端 POST /api/carbon/ai/align-item
 const requestItemAlignment = async ({ itemName, quantity = 1, fallbackCategoryKey = 'food' }) => {
   const cleanQty = Math.max(0.01, Number(quantity || 1))
   const cacheKey = `${itemName}__${cleanQty}__${fallbackCategoryKey}`
@@ -437,7 +520,6 @@ const requestItemAlignment = async ({ itemName, quantity = 1, fallbackCategoryKe
     console.warn('呼叫 /api/carbon/ai/align-item 失敗：', err)
   }
 
-  // 後端無法連線時的備援（避免整頁空白）
   const fallbackFactor = 0.75
   const fallbackResult = {
     standard_name: '一般綜合消費（類別平均）',
@@ -520,7 +602,12 @@ const loadCarbonData = async () => {
         ings.forEach((ing, iIdx) => {
           const portion = Number(ing.portion_amount || 0)
           if (!ing.ingredient_name || portion <= 0) return
-          const equivQty = ing.unit === 'g' ? Number((portion / 150).toFixed(2)) : portion
+
+          // 公克以 150g 為一份基準，避免直接把公克數當成大倍數
+          const equivQty =
+            ing.unit === 'g'
+              ? Number(Math.max(0.1, portion / 150).toFixed(2))
+              : Number(portion.toFixed(2))
           const fallbackCatKey = resolveFallbackCategoryKey(ing.ingredient_name, 'food')
 
           alignmentTasks.push(
@@ -570,12 +657,10 @@ const totalCarbonKg = computed(() => {
   return Number(sum.toFixed(2))
 })
 
-// 隱形碳成本（供應鏈上游間接排放約佔生命週期 34%）
 const hiddenCarbonKg = computed(() => {
   return Number((totalCarbonKg.value * 0.34).toFixed(2))
 })
 
-// 生活化指標換算：台灣家庭用電排碳係數約 0.495 kg CO2e / 度
 const equivalentElectricityKwh = computed(() => {
   return Math.round(totalCarbonKg.value / 0.495)
 })
@@ -685,21 +770,21 @@ const applyManualCorrection = async () => {
   const newCarbonKg = Number((row.quantity * chosen.unit_factor).toFixed(4))
 
   try {
-    // 若後端有提供校正端點則同步寫入，失敗不影響前端畫面更新
     await fetch(`${API_BASE_URL}/api/carbon/ai/correct`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        raw_name: row.raw_name,
-        corrected_standard_name: chosen.standard_name,
-        corrected_category: chosen.category,
-        corrected_unit_factor: chosen.unit_factor
+        item_name: row.raw_name,
+        factor_code: chosen.factor_code,
+        category_key: chosen.category_key,
+        custom_kg_co2e: chosen.unit_factor
       })
     })
-  } catch {
-    // 忽略未實作或網路例外
+  } catch (err) {
+    console.warn('同步手動校正至後端失敗：', err)
   } finally {
     row.standard_name = chosen.standard_name
+    row.factor_code = chosen.factor_code
     row.category = chosen.category
     row.unit_factor = chosen.unit_factor
     row.carbon_kg = newCarbonKg
@@ -826,6 +911,8 @@ onMounted(async () => {
   border: 1px solid #cbd5e1;
   border-radius: 10px;
   font-size: 0.88rem;
+  background-color: #ffffff;
+  color: #111827;
 }
 
 .range-sep {
@@ -1195,6 +1282,7 @@ onMounted(async () => {
 
 .modal-card {
   background: #ffffff;
+  color: #111827;
   border-radius: 20px;
   padding: 1.4rem;
   width: 100%;
@@ -1207,10 +1295,12 @@ onMounted(async () => {
 .modal-card h4 {
   margin: 0;
   font-size: 1.08rem;
+  color: #111827;
 }
 
 .info-box {
   background: #f9fafb;
+  color: #1f2937;
   padding: 0.85rem;
   border-radius: 12px;
   font-size: 0.86rem;
@@ -1234,6 +1324,7 @@ onMounted(async () => {
   gap: 0.4rem;
   font-size: 0.86rem;
   font-weight: 600;
+  color: #111827;
 }
 
 .select-control {
@@ -1242,6 +1333,13 @@ onMounted(async () => {
   border: 1.5px solid #cbd5e1;
   padding: 0 0.75rem;
   font-size: 0.88rem;
+  background-color: #ffffff;
+  color: #111827;
+}
+
+.select-control option {
+  background-color: #ffffff;
+  color: #111827;
 }
 
 .modal-actions {
