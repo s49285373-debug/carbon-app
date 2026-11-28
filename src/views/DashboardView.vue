@@ -26,7 +26,7 @@
               </button>
             </div>
             <div class="carbon-total-box">
-              <div class="carbon-total-number">{{ totalCarbonKg.toFixed(2) }}</div>
+              <div class="carbon-total-number">{{ Number(totalCarbonKg || 0).toFixed(2) }}</div>
               <div class="carbon-total-unit">Kg CO₂e</div>
             </div>
           </div>
@@ -102,7 +102,7 @@
               <div class="summary-main-row">
                 <span class="summary-amount">TWD {{ filteredTotalAmount.toLocaleString() }}</span>
                 <span class="summary-divider">|</span>
-                <span class="summary-count">{{ filteredInvoices.length }} 張</span>
+                <span class="summary-count">{{ (filteredInvoices || []).length }} 張</span>
               </div>
               <div class="summary-info-pill">
                 📦 本期共 <strong>{{ filteredTotalItemsCount }}</strong> 項商品明細
@@ -123,7 +123,7 @@
               </button>
             </div>
 
-            <div class="invoice-record-list" v-if="filteredInvoices.length > 0">
+            <div class="invoice-record-list" v-if="(filteredInvoices || []).length > 0">
               <div
                 class="invoice-record-item"
                 v-for="inv in filteredInvoices"
@@ -148,7 +148,7 @@
                 </div>
 
                 <div class="record-bottom-tags">
-                  <span class="tag-items">📦 {{ getSubstantiveItems(inv.items).length }} 項</span>
+                  <span class="tag-items">📦 {{ getSubstantiveItems(inv?.items || []).length }} 項</span>
                   <div class="record-right-actions">
                     <span
                       class="tag-source"
@@ -232,7 +232,7 @@
 
               <div
                 class="focus-frame"
-                :class="{ 'is-detected': detectedBoxes.length > 0 || qrPulseDetected }"
+                :class="{ 'is-detected': (detectedBoxes || []).length > 0 || qrPulseDetected }"
               >
                 <span class="corner top-left"></span>
                 <span class="corner top-right"></span>
@@ -287,9 +287,9 @@
                   <button class="view-passbook-link" @click="lastExtractedInvoice = null">清除</button>
                 </div>
               </div>
-              <div v-if="lastExtractedInvoice.items && lastExtractedInvoice.items.length > 0" class="latest-extracted-items">
+              <div v-if="(lastExtractedInvoice.items || []).length > 0" class="latest-extracted-items">
                 <span
-                  v-for="(item, idx) in lastExtractedInvoice.items"
+                  v-for="(item, idx) in (lastExtractedInvoice.items || [])"
                   :key="idx"
                   class="item-chip"
                   :class="{ 'discount-chip': !isSubstantiveProductItem(item) }"
@@ -426,7 +426,7 @@
               <div class="official-items-title">商品明細</div>
 
               <div
-                v-for="(item, idx) in tradEditorForm.items"
+                v-for="(item, idx) in (tradEditorForm.items || [])"
                 :key="idx"
                 class="official-item-box"
               >
@@ -527,7 +527,7 @@
               <div class="official-items-title">食材品項與份量</div>
 
               <div
-                v-for="(ing, idx) in mealForm.ingredients"
+                v-for="(ing, idx) in (mealForm.ingredients || [])"
                 :key="idx"
                 class="official-item-box"
               >
@@ -593,7 +593,7 @@
               <button class="period-arrow-btn" @click="nextMealPeriod">&gt;</button>
             </div>
 
-            <div class="meal-list-stack" v-if="filteredMeals.length > 0">
+            <div class="meal-list-stack" v-if="(filteredMeals || []).length > 0">
               <div
                 class="meal-record-card is-clickable"
                 v-for="meal in filteredMeals"
@@ -602,7 +602,7 @@
               >
                 <div class="meal-record-top">
                   <span>{{ meal.created_date || meal.meal_date }}</span>
-                  <span class="tag-items">{{ meal.ingredients.length }} 項食材</span>
+                  <span class="tag-items">{{ (meal.ingredients || []).length }} 項食材</span>
                 </div>
 
                 <div class="meal-record-main">
@@ -612,7 +612,7 @@
 
                 <div class="meal-record-ingredients">
                   <span
-                    v-for="(ing, i) in meal.ingredients"
+                    v-for="(ing, i) in (meal.ingredients || [])"
                     :key="i"
                     class="meal-ing-chip"
                   >
@@ -676,10 +676,10 @@
         </div>
 
         <div class="detail-meta-box">
-          <p><strong>食材品項數：</strong>{{ selectedMealDetail.ingredients.length }} 項</p>
+          <p><strong>食材品項數：</strong>{{ (selectedMealDetail.ingredients || []).length }} 項</p>
         </div>
 
-        <div class="detail-items-section" v-if="selectedMealDetail.ingredients && selectedMealDetail.ingredients.length > 0">
+        <div class="detail-items-section" v-if="(selectedMealDetail.ingredients || []).length > 0">
           <div class="detail-items-head">
             <span>食材名稱</span>
             <span>份量</span>
@@ -687,7 +687,7 @@
           </div>
           <div
             class="detail-item-row"
-            v-for="(ing, idx) in selectedMealDetail.ingredients"
+            v-for="(ing, idx) in (selectedMealDetail.ingredients || [])"
             :key="idx"
           >
             <span class="detail-item-name">{{ ing.ingredient_name }}</span>
@@ -737,7 +737,7 @@
           </p>
         </div>
 
-        <div class="detail-items-section" v-if="selectedInvoiceDetail.items && selectedInvoiceDetail.items.length > 0">
+        <div class="detail-items-section" v-if="(selectedInvoiceDetail.items || []).length > 0">
           <div class="detail-items-head">
             <span>品名</span>
             <span>數量</span>
@@ -746,7 +746,7 @@
           <div
             class="detail-item-row"
             :class="{ 'is-discount-row': !isSubstantiveProductItem(item) }"
-            v-for="(item, idx) in selectedInvoiceDetail.items"
+            v-for="(item, idx) in (selectedInvoiceDetail.items || [])"
             :key="idx"
           >
             <span class="detail-item-name">
@@ -922,30 +922,6 @@ const formatRocPeriodBadge = (dateStr) => {
   return `${rocYear}年${pad(oddStart)}–${pad(evenEnd)}月`
 }
 
-const MEAL_STORAGE_KEY_PREFIX = 'carbon_meal_records_'
-const getMealStorageKey = () => `${MEAL_STORAGE_KEY_PREFIX}${userPhone.value || 'guest'}`
-
-const loadMealRecordsLocal = () => {
-  try {
-    const raw = localStorage.getItem(getMealStorageKey())
-    if (!raw) return
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed)) {
-      mealList.value = parsed
-    }
-  } catch {
-    // 忽略解析例外
-  }
-}
-
-const saveMealRecordsLocal = () => {
-  try {
-    localStorage.setItem(getMealStorageKey(), JSON.stringify(mealList.value))
-  } catch {
-    // 忽略儲存例外
-  }
-}
-
 const generateMealRecordId = () => {
   const now = new Date()
   const y = now.getFullYear()
@@ -956,34 +932,61 @@ const generateMealRecordId = () => {
 }
 
 const normalizeMealRecord = (raw) => {
-  const rawItems = Array.isArray(raw?.items)
-    ? raw.items
-    : Array.isArray(raw?.ingredients)
-    ? raw.ingredients
+  const safeRaw = raw && typeof raw === 'object' ? raw : {}
+  const rawItems = Array.isArray(safeRaw.items)
+    ? safeRaw.items
+    : Array.isArray(safeRaw.ingredients)
+    ? safeRaw.ingredients
     : []
 
-  const normalizedIngredients = rawItems.map((it) => ({
-    ingredient_name: String(it.ingredient_name || '').trim(),
-    portion_amount: Number(it.portion_amount ?? it.quantity ?? 0),
-    quantity: Number(it.quantity ?? it.portion_amount ?? 0),
-    unit: String(it.unit || 'g').trim(),
-    carbon_kg: Number(it.carbon_kg || 0),
-    factor_name: it.factor_name || null
-  }))
+  const normalizedIngredients = rawItems
+    .filter((it) => it && typeof it === 'object')
+    .map((it) => ({
+      ingredient_name: String(it.ingredient_name || '').trim(),
+      portion_amount: Number(it.portion_amount ?? it.quantity ?? 0),
+      quantity: Number(it.quantity ?? it.portion_amount ?? 0),
+      unit: String(it.unit || 'g').trim(),
+      carbon_kg: Number(it.carbon_kg || 0),
+      factor_name: it.factor_name || null
+    }))
 
-  const createdDate = normalizeDateOnly(raw?.meal_date || raw?.created_date || getTodayFormatted())
-  const recordId = raw?.id ?? raw?.record_id ?? generateMealRecordId()
+  const createdDate = normalizeDateOnly(safeRaw.meal_date || safeRaw.created_date || getTodayFormatted())
+  const recordId = safeRaw.id ?? safeRaw.record_id ?? generateMealRecordId()
 
   return {
-    id: raw?.id ?? null,
+    id: safeRaw.id ?? null,
     record_id: recordId,
-    meal_name: String(raw?.meal_name || '').trim(),
+    meal_name: String(safeRaw.meal_name || '').trim(),
     created_date: createdDate,
     meal_date: createdDate,
-    carbon_kg: Number(raw?.carbon_kg || 0),
-    hidden_carbon_cost: Number(raw?.hidden_carbon_cost || 0),
+    carbon_kg: Number(safeRaw.carbon_kg || 0),
+    hidden_carbon_cost: Number(safeRaw.hidden_carbon_cost || 0),
     ingredients: normalizedIngredients,
     items: normalizedIngredients
+  }
+}
+
+const MEAL_STORAGE_KEY_PREFIX = 'carbon_meal_records_'
+const getMealStorageKey = () => `${MEAL_STORAGE_KEY_PREFIX}${userPhone.value || 'guest'}`
+
+const loadMealRecordsLocal = () => {
+  try {
+    const raw = localStorage.getItem(getMealStorageKey())
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      mealList.value = parsed.map(normalizeMealRecord)
+    }
+  } catch {
+    mealList.value = []
+  }
+}
+
+const saveMealRecordsLocal = () => {
+  try {
+    localStorage.setItem(getMealStorageKey(), JSON.stringify(mealList.value || []))
+  } catch {
+    // 忽略儲存例外
   }
 }
 
@@ -1039,7 +1042,7 @@ const saveMealToCloud = async (record) => {
     if (result?.data) {
       return normalizeMealRecord(result.data)
     }
-    return record
+    return normalizeMealRecord(record)
   } catch (err) {
     console.error('寫入雲端餐點紀錄失敗：', err)
     alert('無法連線至後端伺服器，餐點尚未存入雲端')
@@ -1055,6 +1058,9 @@ const openMealTab = () => {
 }
 
 const addMealIngredientRow = () => {
+  if (!Array.isArray(mealForm.value.ingredients)) {
+    mealForm.value.ingredients = []
+  }
   mealForm.value.ingredients.push({
     ingredient_name: '',
     portion_amount: 100,
@@ -1070,11 +1076,11 @@ const submitMealRecord = async () => {
     return
   }
 
-  const validIngredients = (mealForm.value.ingredients || [])
+  const validIngredients = (Array.isArray(mealForm.value.ingredients) ? mealForm.value.ingredients : [])
     .map((ing) => ({
-      ingredient_name: String(ing.ingredient_name || '').trim(),
-      portion_amount: Number(ing.portion_amount || 0),
-      unit: ing.unit === '份' ? '份' : 'g'
+      ingredient_name: String(ing?.ingredient_name || '').trim(),
+      portion_amount: Number(ing?.portion_amount || 0),
+      unit: ing?.unit === '份' ? '份' : 'g'
     }))
     .filter((ing) => ing.ingredient_name && Number.isFinite(ing.portion_amount) && ing.portion_amount > 0)
 
@@ -1110,11 +1116,11 @@ const submitMealRecord = async () => {
 }
 
 const openMealDetail = (meal) => {
-  selectedMealDetail.value = meal
+  selectedMealDetail.value = normalizeMealRecord(meal)
 }
 
 const deleteMealRecord = async (recordId) => {
-  const target = mealList.value.find(
+  const target = (mealList.value || []).find(
     (item) => item.record_id === recordId || item.id === recordId
   )
   const dbId = target?.id ?? recordId
@@ -1129,7 +1135,7 @@ const deleteMealRecord = async (recordId) => {
       console.warn('刪除雲端餐點紀錄失敗：', err)
     }
   }
-  mealList.value = mealList.value.filter(
+  mealList.value = (mealList.value || []).filter(
     (item) => item.record_id !== recordId && item.id !== recordId
   )
   saveMealRecordsLocal()
@@ -1143,8 +1149,8 @@ const deleteMealRecord = async (recordId) => {
 
 const filteredMeals = computed(() => {
   const activePeriod = mealPeriods[currentMealPeriodIndex.value]
-  return mealList.value.filter(
-    (m) => formatRocPeriodBadge(m.created_date || m.meal_date) === activePeriod
+  return (Array.isArray(mealList.value) ? mealList.value : []).filter(
+    (m) => m && formatRocPeriodBadge(m.created_date || m.meal_date) === activePeriod
   )
 })
 
@@ -1277,7 +1283,9 @@ const isValidParsedItem = (item) => {
 const mergeUniqueItems = (baseItems = [], extraItems = []) => {
   const merged = []
   const seen = new Set()
-  for (const raw of [...baseItems, ...extraItems]) {
+  const safeBase = Array.isArray(baseItems) ? baseItems : []
+  const safeExtra = Array.isArray(extraItems) ? extraItems : []
+  for (const raw of [...safeBase, ...safeExtra]) {
     const norm = normalizeItemRow(raw)
     if (!isValidParsedItem(norm)) continue
     const key = `${norm.item_name}__${norm.quantity}__${norm.unit_price}__${norm.amount}`
@@ -1354,21 +1362,23 @@ const syncInvoicesFromCloud = async () => {
     if (!res.ok) return
     const result = await res.json()
     if (result?.status === 'success' && Array.isArray(result.data)) {
-      invoiceList.value = result.data.map((inv) => {
-        const formattedDate = normalizeDateOnly(inv.purchase_date)
-        const reconciled = reconcileInvoiceAmounts(
-          Array.isArray(inv.items) ? inv.items : [],
-          Number(inv.total_amount || 0)
-        )
-        return {
-          ...inv,
-          purchase_date: formattedDate,
-          total_amount: reconciled.totalAmount,
-          unmatched_diff: reconciled.unmatchedDiff,
-          summary_title: buildSummaryTitle(reconciled.items, inv.merchant_name),
-          items: reconciled.items
-        }
-      })
+      invoiceList.value = result.data
+        .filter((inv) => inv && typeof inv === 'object')
+        .map((inv) => {
+          const formattedDate = normalizeDateOnly(inv.purchase_date)
+          const reconciled = reconcileInvoiceAmounts(
+            Array.isArray(inv.items) ? inv.items : [],
+            Number(inv.total_amount || 0)
+          )
+          return {
+            ...inv,
+            purchase_date: formattedDate,
+            total_amount: reconciled.totalAmount,
+            unmatched_diff: reconciled.unmatchedDiff,
+            summary_title: buildSummaryTitle(reconciled.items, inv.merchant_name),
+            items: reconciled.items
+          }
+        })
     }
   } catch (err) {
     console.warn('同步雲端發票失敗：', err)
@@ -1462,6 +1472,9 @@ const stopScanLoop = () => {
 }
 
 const addTradItemRow = () => {
+  if (!Array.isArray(tradEditorForm.value.items)) {
+    tradEditorForm.value.items = []
+  }
   tradEditorForm.value.items.push({
     item_name: '',
     quantity: 1,
@@ -1470,7 +1483,9 @@ const addTradItemRow = () => {
 }
 
 const removeTradItemRow = (idx) => {
-  tradEditorForm.value.items.splice(idx, 1)
+  if (Array.isArray(tradEditorForm.value.items)) {
+    tradEditorForm.value.items.splice(idx, 1)
+  }
 }
 
 const submitTraditionalInvoice = async () => {
@@ -1491,7 +1506,7 @@ const submitTraditionalInvoice = async () => {
   }
 
   const validItems = (Array.isArray(tradEditorForm.value.items) ? tradEditorForm.value.items : [])
-    .filter((it) => String(it.item_name || '').trim().length > 0)
+    .filter((it) => String(it?.item_name || '').trim().length > 0)
     .map((it) => {
       const qty = Math.max(1, Number(it.quantity || 1))
       const amt = Math.max(0, Number(it.amount || 0))
@@ -1786,7 +1801,7 @@ const scheduleFlushForLeftQr = () => {
 
 const handleFrameQrTexts = async (rawTexts = []) => {
   const uniqueTexts = Array.from(
-    new Set((rawTexts || []).map((t) => String(t || '').trim()).filter(Boolean))
+    new Set((Array.isArray(rawTexts) ? rawTexts : []).map((t) => String(t || '').trim()).filter(Boolean))
   )
   if (uniqueTexts.length === 0) return
 
@@ -1807,8 +1822,8 @@ const handleFrameQrTexts = async (rawTexts = []) => {
   if (leftEntries.length > 0 && rightEntries.length > 0) {
     clearPendingTimersOnly()
     const mainLeft = leftEntries[0]
-    const exists = invoiceList.value.some(
-      (inv) => inv.invoice_number === mainLeft.parsed.invoiceNumber
+    const exists = (invoiceList.value || []).some(
+      (inv) => inv?.invoice_number === mainLeft.parsed.invoiceNumber
     )
     if (exists) {
       pendingLeftQr = null
@@ -1871,8 +1886,8 @@ const handleFrameQrTexts = async (rawTexts = []) => {
 
   if (leftEntries.length > 0) {
     const mainLeft = leftEntries[0]
-    const exists = invoiceList.value.some(
-      (inv) => inv.invoice_number === mainLeft.parsed.invoiceNumber
+    const exists = (invoiceList.value || []).some(
+      (inv) => inv?.invoice_number === mainLeft.parsed.invoiceNumber
     )
     if (exists) {
       duplicateAlertMsg.value = '發票已存在'
@@ -2195,7 +2210,7 @@ const deleteInvoice = async (targetId) => {
       console.warn('刪除雲端發票失敗：', err)
     }
   }
-  invoiceList.value = invoiceList.value.filter(item => item.id !== targetId)
+  invoiceList.value = (invoiceList.value || []).filter(item => item?.id !== targetId)
   if (selectedInvoiceDetail.value && selectedInvoiceDetail.value.id === targetId) {
     selectedInvoiceDetail.value = null
   }
@@ -2228,31 +2243,45 @@ const carbonCategoryRows = computed(() => {
     electronics: 0
   }
 
-  for (const meal of mealList.value) {
+  const safeMeals = Array.isArray(mealList.value) ? mealList.value : []
+  for (const meal of safeMeals) {
+    if (!meal || typeof meal !== 'object') continue
     const ingList = Array.isArray(meal.ingredients) ? meal.ingredients : []
-    for (const ing of ingList) {
-      const name = String(ing.ingredient_name || '')
-      const cat = classifyCarbonCategory(name)
-      const backendKg = Number(ing.carbon_kg || 0)
-      if (backendKg > 0) {
-        if (cat === 'beverage') {
-          totals.beverage += backendKg
+    if (ingList.length > 0) {
+      for (const ing of ingList) {
+        if (!ing || typeof ing !== 'object') continue
+        const name = String(ing.ingredient_name || '')
+        const cat = classifyCarbonCategory(name)
+        const backendKg = Number(ing.carbon_kg || 0)
+        if (backendKg > 0) {
+          if (cat === 'beverage') {
+            totals.beverage += backendKg
+          } else {
+            totals.food += backendKg
+          }
         } else {
-          totals.food += backendKg
+          const amt = Math.max(0, Number(ing.portion_amount || 0))
+          const factor = ing.unit === 'g' || ing.unit === '公克 (g)' ? amt / 1000 : amt * 0.25
+          if (cat === 'beverage') {
+            totals.beverage += factor * 1.2
+          } else {
+            totals.food += factor * 2.1
+          }
         }
+      }
+    } else if (Number(meal.carbon_kg || 0) > 0) {
+      const cat = classifyCarbonCategory(meal.meal_name || '')
+      if (cat === 'beverage') {
+        totals.beverage += Number(meal.carbon_kg)
       } else {
-        const amt = Math.max(0, Number(ing.portion_amount || 0))
-        const factor = ing.unit === 'g' || ing.unit === '公克 (g)' ? amt / 1000 : amt * 0.25
-        if (cat === 'beverage') {
-          totals.beverage += factor * 1.2
-        } else {
-          totals.food += factor * 2.1
-        }
+        totals.food += Number(meal.carbon_kg)
       }
     }
   }
 
-  for (const inv of invoiceList.value) {
+  const safeInvoices = Array.isArray(invoiceList.value) ? invoiceList.value : []
+  for (const inv of safeInvoices) {
+    if (!inv || typeof inv !== 'object') continue
     const invNum = String(inv.invoice_number || '').toUpperCase()
     const items = getSubstantiveItems(inv.items)
     if (items.length > 0) {
@@ -2284,7 +2313,8 @@ const carbonCategoryRows = computed(() => {
 })
 
 const totalCarbonKg = computed(() => {
-  const sum = carbonCategoryRows.value.reduce((acc, row) => acc + Number(row.kg || 0), 0)
+  const rows = Array.isArray(carbonCategoryRows.value) ? carbonCategoryRows.value : []
+  const sum = rows.reduce((acc, row) => acc + Number(row?.kg || 0), 0)
   return Number(sum.toFixed(2))
 })
 
@@ -2295,7 +2325,8 @@ const sourceFilterLabel = computed(() => {
 })
 
 const filteredInvoices = computed(() => {
-  let list = [...invoiceList.value]
+  const base = Array.isArray(invoiceList.value) ? invoiceList.value : []
+  let list = base.filter((i) => i && typeof i === 'object')
 
   if (sourceFilter.value === 'electronic') {
     list = list.filter(i => i.source_type !== 'traditional')
@@ -2310,7 +2341,7 @@ const filteredInvoices = computed(() => {
         (i.invoice_number || '').toLowerCase().includes(kw) ||
         (i.merchant_name || '').toLowerCase().includes(kw) ||
         (i.summary_title || '').toLowerCase().includes(kw) ||
-        (Array.isArray(i.items) && i.items.some(it => (it.item_name || '').toLowerCase().includes(kw)))
+        (Array.isArray(i.items) && i.items.some(it => (it?.item_name || '').toLowerCase().includes(kw)))
     )
   }
 
@@ -2324,12 +2355,14 @@ const filteredInvoices = computed(() => {
 })
 
 const filteredTotalAmount = computed(() => {
-  return filteredInvoices.value.reduce((acc, item) => acc + Number(item.total_amount || 0), 0)
+  const list = Array.isArray(filteredInvoices.value) ? filteredInvoices.value : []
+  return list.reduce((acc, item) => acc + Number(item?.total_amount || 0), 0)
 })
 
 const filteredTotalItemsCount = computed(() => {
-  return filteredInvoices.value.reduce(
-    (acc, item) => acc + getSubstantiveItems(item.items).length,
+  const list = Array.isArray(filteredInvoices.value) ? filteredInvoices.value : []
+  return list.reduce(
+    (acc, item) => acc + getSubstantiveItems(item?.items || []).length,
     0
   )
 })
@@ -2477,8 +2510,8 @@ const processInvoiceLookup = async (inputMeta, rawPayload, sourceType = 'qr') =>
   } finally {
     let record = resolveInvoiceRecord(inputMeta, backendData)
 
-    const alreadyExists = invoiceList.value.some(
-      inv => inv.invoice_number === record.invoice_number
+    const alreadyExists = (invoiceList.value || []).some(
+      inv => inv?.invoice_number === record.invoice_number
     )
     if (alreadyExists) {
       duplicateAlertMsg.value = '發票已存在'
