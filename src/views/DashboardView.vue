@@ -597,11 +597,11 @@
               <div
                 class="meal-record-card is-clickable"
                 v-for="meal in filteredMeals"
-                :key="meal.record_id"
+                :key="meal.record_id || meal.id"
                 @click="openMealDetail(meal)"
               >
                 <div class="meal-record-top">
-                  <span>{{ meal.created_date }}</span>
+                  <span>{{ meal.created_date || meal.meal_date }}</span>
                   <span class="tag-items">{{ meal.ingredients.length }} 項食材</span>
                 </div>
 
@@ -670,9 +670,9 @@
     <div v-if="selectedMealDetail" class="manual-modal-overlay" @click.self="selectedMealDetail = null">
       <div class="manual-modal-card receipt-detail-modal">
         <div class="detail-top-header">
-          <span class="detail-period-badge">{{ formatRocPeriodBadge(selectedMealDetail.created_date) }}</span>
+          <span class="detail-period-badge">{{ formatRocPeriodBadge(selectedMealDetail.created_date || selectedMealDetail.meal_date) }}</span>
           <h4 class="detail-invoice-no">{{ selectedMealDetail.meal_name }}</h4>
-          <p class="detail-date-line">建立日期：{{ selectedMealDetail.created_date }}</p>
+          <p class="detail-date-line">建立日期：{{ selectedMealDetail.created_date || selectedMealDetail.meal_date }}</p>
         </div>
 
         <div class="detail-meta-box">
@@ -697,7 +697,12 @@
         </div>
 
         <div class="modal-btn-row">
-          <button class="delete-modal-btn" @click="deleteMealRecord(selectedMealDetail.record_id)">刪除此筆</button>
+          <button
+            class="delete-modal-btn"
+            @click="deleteMealRecord(selectedMealDetail.record_id ?? selectedMealDetail.id)"
+          >
+            刪除此筆
+          </button>
           <button class="primary-action-btn" @click="selectedMealDetail = null">關閉</button>
         </div>
       </div>
@@ -1138,7 +1143,9 @@ const deleteMealRecord = async (recordId) => {
 
 const filteredMeals = computed(() => {
   const activePeriod = mealPeriods[currentMealPeriodIndex.value]
-  return mealList.value.filter((m) => formatRocPeriodBadge(m.created_date) === activePeriod)
+  return mealList.value.filter(
+    (m) => formatRocPeriodBadge(m.created_date || m.meal_date) === activePeriod
+  )
 })
 
 const prevMealPeriod = () => {
@@ -2154,8 +2161,8 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(async () => {
-  await stopCameraScanner()
+onBeforeUnmount(() => {
+  void stopCameraScanner()
 })
 
 const openScanTab = async () => {
@@ -2520,6 +2527,7 @@ const handleLogout = async () => {
 }
 
 .dashboard-container.scan-mode {
+  min-height: 100vh;
   padding: 0.75rem 0.75rem 2rem 0.75rem;
 }
 
@@ -3789,6 +3797,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 }
 
 .official-editor-body {
+  min-height: calc(100vh - 70px);
   background-color: #ffffff;
   color: #111827;
   padding: 1.25rem 1.25rem 1.75rem 1.25rem;
