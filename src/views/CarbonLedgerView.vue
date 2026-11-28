@@ -12,7 +12,7 @@
     </header>
 
     <main class="ledger-main">
-      <!-- 1. 選擇查看碳排時間區段（對應 4.1.1.1.3） -->
+      <!-- 1. 選擇查看碳排時間區段 -->
       <section class="filter-card">
         <div class="period-mode-tabs">
           <button
@@ -41,7 +41,7 @@
         <p v-if="rangeErrorMsg" class="range-error-text">⚠️ {{ rangeErrorMsg }}</p>
       </section>
 
-      <!-- 2. 碳排摘要與生活化指標換算（對應 4.1.1.2.1 欄位 A） -->
+      <!-- 2. 碳排摘要與生活化指標換算 -->
       <section class="summary-grid">
         <div class="kpi-card highlight-green">
           <span class="kpi-label">區間總碳排放量</span>
@@ -62,14 +62,14 @@
         </div>
       </section>
 
-      <!-- 無資料提示（對應 4.1.1.2.1 例外狀況） -->
+      <!-- 無資料提示 -->
       <section v-if="filteredCarbonRecords.length === 0" class="empty-card">
         <p>{{ isLoading ? '正在彙整碳足跡數據...' : '所選時間區段內尚無發票或餐點碳排紀錄' }}</p>
         <button class="primary-btn" @click="$router.push('/dashboard')">前往掃描發票或新增餐點</button>
       </section>
 
       <template v-else>
-        <!-- 3. 類別佔比圓餅圖（對應 4.1.1.2.1 欄位 B） -->
+        <!-- 3. 類別佔比圓餅圖 -->
         <section class="chart-card">
           <div class="card-header-row">
             <h3>📊 消費類別碳排佔比</h3>
@@ -103,7 +103,7 @@
           </div>
         </section>
 
-        <!-- 4. 各週比較長條圖 ＆ 每日趨勢折線圖（對應 4.1.1.2.1 欄位 C & D） -->
+        <!-- 4. 各週比較長條圖 ＆ 每日趨勢折線圖 -->
         <section class="chart-card">
           <div class="card-header-row">
             <h3>📈 碳排週比較與每日趨勢</h3>
@@ -123,7 +123,6 @@
             </div>
           </div>
 
-          <!-- 各週長條圖 -->
           <div v-if="trendChartType === 'bar'" class="bar-chart-box">
             <div
               v-for="w in weeklyComparison"
@@ -141,7 +140,6 @@
             </div>
           </div>
 
-          <!-- 每日趨勢折線圖 (SVG) -->
           <div v-else class="line-chart-box">
             <svg viewBox="0 0 360 150" class="trend-svg">
               <line x1="24" y1="125" x2="345" y2="125" stroke="#d1d5db" stroke-width="1.5" />
@@ -168,7 +166,7 @@
           </div>
         </section>
 
-        <!-- 5. 碳排明細與信心分數列表（對應 4.1.1.2.2） -->
+        <!-- 5. 碳排明細與信心分數列表 -->
         <section class="chart-card">
           <div class="card-header-row">
             <h3>🧾 碳排明細與 AI 語意對齊依據</h3>
@@ -182,11 +180,11 @@
             <table class="carbon-detail-table">
               <thead>
                 <tr>
-                  <th>原始品名</th>
-                  <th>對齊標準名稱</th>
-                  <th>碳係數</th>
-                  <th>碳排量</th>
-                  <th>信心分數</th>
+                  <th class="col-raw">原始品名</th>
+                  <th class="col-std">對齊標準名稱</th>
+                  <th class="col-num">碳係數</th>
+                  <th class="col-num">碳排量</th>
+                  <th class="col-conf">信心分數</th>
                 </tr>
               </thead>
               <tbody>
@@ -196,14 +194,14 @@
                   class="clickable-row"
                   @click="selectedDetailRow = row"
                 >
-                  <td>
+                  <td class="col-raw">
                     <div class="raw-name">{{ row.raw_name }}</div>
                     <small class="source-mini">{{ row.date }} · {{ row.source_badge }}</small>
                   </td>
-                  <td>{{ row.standard_name }}</td>
+                  <td class="col-std">{{ row.standard_name }}</td>
                   <td class="num-col">{{ row.unit_factor.toFixed(2) }}</td>
                   <td class="num-col"><strong>{{ row.carbon_kg.toFixed(2) }}</strong> kg</td>
-                  <td>
+                  <td class="col-conf">
                     <span
                       class="conf-badge"
                       :class="row.confidence < 0.75 || row.is_estimated ? 'is-estimated' : 'is-verified'"
@@ -221,7 +219,7 @@
       </template>
     </main>
 
-    <!-- 係數來源與手動校正彈窗（對應 4.1.1.2.2 & 2.2.3 手動校正） -->
+    <!-- 係數來源與手動校正彈窗 -->
     <div v-if="selectedDetailRow" class="modal-overlay" @click.self="selectedDetailRow = null">
       <div class="modal-card">
         <h4>🔍 碳排推估依據與手動校正</h4>
@@ -229,8 +227,8 @@
         <div class="info-box">
           <p><strong>原始品名：</strong>{{ selectedDetailRow.raw_name }}（數量：{{ selectedDetailRow.quantity }}）</p>
           <p><strong>目前對齊：</strong>{{ selectedDetailRow.standard_name }}</p>
-          <p><strong>單位碳係數：</strong>{{ selectedDetailRow.unit_factor.toFixed(4) }} kg CO₂e</p>
-          <p><strong>推估碳排量：</strong>{{ selectedDetailRow.carbon_kg.toFixed(4) }} kg CO₂e</p>
+          <p><strong>單位碳係數：</strong>{{ selectedDetailRow.unit_factor.toFixed(4) }} kg CO₂e / {{ selectedDetailRow.declared_unit }}</p>
+          <p><strong>推估碳排量：</strong>{{ selectedDetailRow.carbon_kg.toFixed(4) }} kg CO₂e（隱形碳：{{ selectedDetailRow.hidden_carbon_cost_kg.toFixed(4) }} kg）</p>
           <p>
             <strong>信心分數：</strong>{{ selectedDetailRow.confidence.toFixed(2) }}
             <span v-if="selectedDetailRow.confidence < 0.75 || selectedDetailRow.is_estimated" class="warn-tag">
@@ -238,6 +236,7 @@
             </span>
           </p>
           <p><strong>係數來源：</strong>{{ selectedDetailRow.factor_source }}</p>
+          <p v-if="selectedDetailRow.basis"><strong>計算依據：</strong>{{ selectedDetailRow.basis }}</p>
         </div>
 
         <div class="correct-box">
@@ -248,11 +247,11 @@
             class="select-control"
           >
             <option
-              v-for="opt in STANDARD_FACTOR_OPTIONS"
-              :key="opt.standard_name"
-              :value="opt.standard_name"
+              v-for="opt in factorOptions"
+              :key="opt.factor_code"
+              :value="opt.factor_code"
             >
-              {{ opt.standard_name }}（{{ opt.unit_factor }} kg CO₂e / {{ opt.category }}）
+              {{ opt.factor_name }}（{{ opt.unit_factor }} kg CO₂e / {{ opt.declared_unit }} · {{ opt.category }}）
             </option>
           </select>
         </div>
@@ -275,94 +274,15 @@ const API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL || 'https://carbon-backend-production-fcf9bbe5.up.railway.app'
 ).replace(/\/+$/, '')
 
-// 手動校正可選的標準碳係數類別（對應後端 category_key 與係數）
-const STANDARD_FACTOR_OPTIONS = [
+const FALLBACK_FACTOR_OPTIONS = [
   {
-    standard_name: '包裝茶飲料',
-    factor_code: 'CFP-BEV-001',
-    category: '食品飲料',
-    category_key: 'beverage',
-    unit_factor: 0.45,
-    source: '環境部產品碳足跡資訊網（包裝茶飲類）'
-  },
-  {
-    standard_name: '含乳冷熱飲品',
-    factor_code: 'CFP-BEV-003',
-    category: '食品飲料',
-    category_key: 'beverage',
-    unit_factor: 1.10,
-    source: '環境部產品碳足跡資訊網（含乳咖啡/奶茶）'
-  },
-  {
-    standard_name: '米飯類食品',
-    factor_code: 'CFP-FOOD-001',
-    category: '食品飲料',
-    category_key: 'food',
-    unit_factor: 0.85,
-    source: '環境部產品碳足跡資訊網（鮮食米飯類）'
-  },
-  {
-    standard_name: '牛肉餐食製品',
-    factor_code: 'CFP-FOOD-002',
-    category: '食品飲料',
-    category_key: 'food',
-    unit_factor: 4.80,
-    source: 'LCA 生命週期評估資料庫（紅肉類）'
-  },
-  {
-    standard_name: '豬肉餐食製品',
-    factor_code: 'CFP-FOOD-003',
-    category: '食品飲料',
-    category_key: 'food',
-    unit_factor: 1.95,
-    source: 'LCA 生命週期評估資料庫（白肉/豬肉類）'
-  },
-  {
-    standard_name: '禽肉餐食製品',
-    factor_code: 'CFP-FOOD-004',
-    category: '食品飲料',
-    category_key: 'food',
-    unit_factor: 1.25,
-    source: 'LCA 生命週期評估資料庫（雞肉/蛋豆類）'
-  },
-  {
-    standard_name: '蔬食與穀物類',
-    factor_code: 'CFP-FOOD-005',
-    category: '食品飲料',
-    category_key: 'food',
-    unit_factor: 0.42,
-    source: '環境部產品碳足跡資訊網（農產蔬食類）'
-  },
-  {
-    standard_name: '瓶裝飲用水',
-    factor_code: 'CFP-BEV-002',
-    category: '包裝耗材',
-    category_key: 'beverage',
-    unit_factor: 0.32,
-    source: '環境部產品碳足跡資訊網（PET瓶裝水）'
-  },
-  {
-    standard_name: '一次性包裝與袋材',
-    factor_code: 'CFP-PKG-001',
-    category: '包裝耗材',
-    category_key: 'living',
-    unit_factor: 0.28,
-    source: '環境部產品碳足跡資訊網（塑膠/紙容器）'
-  },
-  {
-    standard_name: '清潔與個人日用品',
-    factor_code: 'CFP-LIV-001',
-    category: '日用品',
-    category_key: 'living',
-    unit_factor: 0.95,
-    source: '環境部產品碳足跡資訊網（家用品類）'
-  },
-  {
-    standard_name: '一般綜合消費（類別平均）',
+    factor_name: '一般綜合消費（類別平均）',
     factor_code: 'CFP-GEN-001',
     category: '日用品',
     category_key: 'living',
     unit_factor: 0.75,
+    declared_unit: '件',
+    hidden_ratio: 0.3,
     source: '系統類別平均備援係數（估算）'
   }
 ]
@@ -376,20 +296,20 @@ const isCorrecting = ref(false)
 const trendChartType = ref('bar')
 const onlyLowConfidence = ref(false)
 
+const factorOptions = ref(FALLBACK_FACTOR_OPTIONS)
+const defaultHiddenRatio = ref(0.3)
 const allCarbonRecords = ref([])
 const selectedDetailRow = ref(null)
-const selectedCorrectionKey = ref(STANDARD_FACTOR_OPTIONS[0].standard_name)
+const selectedCorrectionKey = ref(FALLBACK_FACTOR_OPTIONS[0].factor_code)
 
 const alignmentCache = new Map()
 
 watch(selectedDetailRow, (row) => {
   if (row) {
-    const matchedOpt = STANDARD_FACTOR_OPTIONS.find(
-      (o) => o.standard_name === row.standard_name
-    )
-    selectedCorrectionKey.value = matchedOpt
-      ? matchedOpt.standard_name
-      : STANDARD_FACTOR_OPTIONS[0].standard_name
+    const matchedByCode = factorOptions.value.find((o) => o.factor_code === row.factor_code)
+    const matchedByName = factorOptions.value.find((o) => o.factor_name === row.standard_name)
+    const target = matchedByCode || matchedByName || factorOptions.value[0]
+    selectedCorrectionKey.value = target ? target.factor_code : ''
   }
 })
 
@@ -470,6 +390,40 @@ const normalizeDisplayCategory = (rawCat = '', fallbackKey = 'living') => {
   return fallbackKey === 'food' || fallbackKey === 'beverage' ? '食品飲料' : '日用品'
 }
 
+const loadFactorOptions = async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/carbon/factors`)
+    if (!res.ok) return
+    const data = await res.json()
+
+    if (data?.carbon_split?.hidden_ratio !== undefined) {
+      const hRatio = Number(data.carbon_split.hidden_ratio)
+      if (!Number.isNaN(hRatio) && hRatio >= 0 && hRatio <= 1) {
+        defaultHiddenRatio.value = hRatio
+      }
+    }
+
+    if (Array.isArray(data?.factors) && data.factors.length > 0) {
+      factorOptions.value = data.factors.map((f) => {
+        const kg = Number(f.kg_co2e || 0)
+        const hiddenKg = Number(f.hidden_supply_kg_co2e ?? kg * defaultHiddenRatio.value)
+        return {
+          factor_name: f.factor_name,
+          factor_code: f.factor_code,
+          category: f.category_label || '日用品',
+          category_key: f.category_key || 'living',
+          unit_factor: kg,
+          declared_unit: f.declared_unit || '件',
+          hidden_ratio: kg > 0 ? hiddenKg / kg : defaultHiddenRatio.value,
+          source: f.source || '環境部產品碳足跡係數庫（MOENV CFP_P_02）'
+        }
+      })
+    }
+  } catch (err) {
+    console.warn('載入後端碳係數清單失敗，使用備援選項：', err)
+  }
+}
+
 const requestItemAlignment = async ({ itemName, quantity = 1, fallbackCategoryKey = 'food' }) => {
   const cleanQty = Math.max(0.01, Number(quantity || 1))
   const cacheKey = `${itemName}__${cleanQty}__${fallbackCategoryKey}`
@@ -491,13 +445,19 @@ const requestItemAlignment = async ({ itemName, quantity = 1, fallbackCategoryKe
     if (res.ok) {
       const data = await res.json()
       const totalKg = Number(data.total_kg_co2e ?? data.kg_co2e ?? 0)
-      const unitFactor = Number(data.kg_co2e ?? (cleanQty > 0 ? totalKg / cleanQty : 0))
+      const unitFactor = Number(data.unit_kg_co2e ?? data.kg_co2e ?? (cleanQty > 0 ? totalKg / cleanQty : 0))
+      const hiddenKg = Number(data.hidden_carbon_cost_kg ?? totalKg * defaultHiddenRatio.value)
       const confidence = Number(data.confidence ?? 0)
       const standardName = data.factor_name || data.standard_name || '一般綜合消費（類別平均）'
       const factorCode = data.factor_code || null
       const category = normalizeDisplayCategory(
         data.category_label || data.category || '',
         fallbackCategoryKey
+      )
+      const sourceText = data.factor_source || data.source || (
+        factorCode
+          ? `環境部產品碳足跡係數庫（${factorCode}）`
+          : '後端語意對齊／類別平均係數'
       )
 
       const mapped = {
@@ -506,11 +466,12 @@ const requestItemAlignment = async ({ itemName, quantity = 1, fallbackCategoryKe
         category,
         unit_factor: Number(unitFactor.toFixed(4)),
         carbon_kg: Number(totalKg.toFixed(4)),
+        hidden_carbon_cost_kg: Number(hiddenKg.toFixed(4)),
+        declared_unit: data.declared_unit || '件',
         confidence,
         is_estimated: Boolean(data.is_estimated) || confidence < 0.75,
-        factor_source: factorCode
-          ? `環境部／系統碳係數庫（${factorCode}）`
-          : (data.factor_source || '後端語意對齊／類別平均係數')
+        factor_source: sourceText,
+        basis: data.basis || ''
       }
 
       alignmentCache.set(cacheKey, mapped)
@@ -521,18 +482,38 @@ const requestItemAlignment = async ({ itemName, quantity = 1, fallbackCategoryKe
   }
 
   const fallbackFactor = 0.75
+  const fallbackTotal = Number((cleanQty * fallbackFactor).toFixed(4))
   const fallbackResult = {
     standard_name: '一般綜合消費（類別平均）',
-    factor_code: null,
+    factor_code: 'CFP-GEN-001',
     category: normalizeDisplayCategory('', fallbackCategoryKey),
     unit_factor: fallbackFactor,
-    carbon_kg: Number((cleanQty * fallbackFactor).toFixed(4)),
+    carbon_kg: fallbackTotal,
+    hidden_carbon_cost_kg: Number((fallbackTotal * defaultHiddenRatio.value).toFixed(4)),
+    declared_unit: '件',
     confidence: 0.5,
     is_estimated: true,
-    factor_source: '前端備援估算（後端暫時無法連線）'
+    factor_source: '前端備援估算（後端暫時無法連線）',
+    basis: '後端無法連線，採前端類別平均備援係數估算'
   }
   alignmentCache.set(cacheKey, fallbackResult)
   return fallbackResult
+}
+
+const buildIngredientQuery = (name, portion, unit) => {
+  const cleanName = String(name || '').trim()
+  const u = String(unit || '').trim()
+  const uLower = u.toLowerCase()
+  if (u === '公克' || u.includes('公克') || uLower === 'g' || uLower.includes('(g)')) {
+    return { queryName: `${cleanName} ${portion}g`, queryQty: 1 }
+  }
+  if (u === '公斤' || u.includes('公斤') || uLower === 'kg' || uLower.includes('(kg)')) {
+    return { queryName: `${cleanName} ${portion * 1000}g`, queryQty: 1 }
+  }
+  if (u === '毫升' || u.includes('毫升') || uLower === 'ml' || uLower.includes('(ml)')) {
+    return { queryName: `${cleanName} ${portion}ml`, queryQty: 1 }
+  }
+  return { queryName: cleanName, queryQty: Math.max(0.01, portion) }
 }
 
 const loadCarbonData = async () => {
@@ -540,7 +521,6 @@ const loadCarbonData = async () => {
   const phone = (localStorage.getItem('user_phone') || '').trim()
   const alignmentTasks = []
 
-  // 1. 讀取發票明細並逐筆呼叫後端 AI 對齊
   let invoices = []
   if (phone) {
     try {
@@ -583,15 +563,17 @@ const loadCarbonData = async () => {
           factor_code: aligned.factor_code,
           unit_factor: aligned.unit_factor,
           carbon_kg: aligned.carbon_kg,
+          hidden_carbon_cost_kg: aligned.hidden_carbon_cost_kg,
+          declared_unit: aligned.declared_unit,
           confidence: aligned.confidence,
           is_estimated: aligned.is_estimated,
-          factor_source: aligned.factor_source
+          factor_source: aligned.factor_source,
+          basis: aligned.basis
         }))
       )
     })
   })
 
-  // 2. 讀取餐點食材紀錄並逐筆呼叫後端 AI 對齊
   try {
     const rawMeals = localStorage.getItem(`carbon_meal_records_${phone || 'guest'}`)
     const meals = rawMeals ? JSON.parse(rawMeals) : []
@@ -603,32 +585,35 @@ const loadCarbonData = async () => {
           const portion = Number(ing.portion_amount || 0)
           if (!ing.ingredient_name || portion <= 0) return
 
-          // 公克以 150g 為一份基準，避免直接把公克數當成大倍數
-          const equivQty =
-            ing.unit === 'g'
-              ? Number(Math.max(0.1, portion / 150).toFixed(2))
-              : Number(portion.toFixed(2))
+          const { queryName, queryQty } = buildIngredientQuery(
+            ing.ingredient_name,
+            portion,
+            ing.unit || 'g'
+          )
           const fallbackCatKey = resolveFallbackCategoryKey(ing.ingredient_name, 'food')
 
           alignmentTasks.push(
             requestItemAlignment({
-              itemName: ing.ingredient_name,
-              quantity: equivQty,
+              itemName: queryName,
+              quantity: queryQty,
               fallbackCategoryKey: fallbackCatKey
             }).then((aligned) => ({
               uid: `meal-${meal.record_id || mIdx}-${iIdx}`,
               date: dateDash,
               source_badge: `餐點(${meal.meal_name || '自製'})`,
-              raw_name: `${ing.ingredient_name} (${portion}${ing.unit})`,
-              quantity: equivQty,
+              raw_name: `${ing.ingredient_name} (${portion}${ing.unit || 'g'})`,
+              quantity: queryQty,
               category: aligned.category,
               standard_name: aligned.standard_name,
               factor_code: aligned.factor_code,
               unit_factor: aligned.unit_factor,
               carbon_kg: aligned.carbon_kg,
+              hidden_carbon_cost_kg: aligned.hidden_carbon_cost_kg,
+              declared_unit: aligned.declared_unit,
               confidence: aligned.confidence,
               is_estimated: aligned.is_estimated,
-              factor_source: aligned.factor_source
+              factor_source: aligned.factor_source,
+              basis: aligned.basis
             }))
           )
         })
@@ -658,7 +643,11 @@ const totalCarbonKg = computed(() => {
 })
 
 const hiddenCarbonKg = computed(() => {
-  return Number((totalCarbonKg.value * 0.34).toFixed(2))
+  const sum = filteredCarbonRecords.value.reduce(
+    (acc, r) => acc + Number(r.hidden_carbon_cost_kg || 0),
+    0
+  )
+  return Number(sum.toFixed(2))
 })
 
 const equivalentElectricityKwh = computed(() => {
@@ -760,14 +749,15 @@ const displayedDetailRows = computed(() => {
 
 const applyManualCorrection = async () => {
   if (!selectedDetailRow.value || isCorrecting.value) return
-  const chosen = STANDARD_FACTOR_OPTIONS.find(
-    (o) => o.standard_name === selectedCorrectionKey.value
+  const chosen = factorOptions.value.find(
+    (o) => o.factor_code === selectedCorrectionKey.value
   )
   if (!chosen) return
 
   isCorrecting.value = true
   const row = selectedDetailRow.value
   const newCarbonKg = Number((row.quantity * chosen.unit_factor).toFixed(4))
+  const newHiddenKg = Number((newCarbonKg * (chosen.hidden_ratio ?? defaultHiddenRatio.value)).toFixed(4))
 
   try {
     await fetch(`${API_BASE_URL}/api/carbon/ai/correct`, {
@@ -783,14 +773,17 @@ const applyManualCorrection = async () => {
   } catch (err) {
     console.warn('同步手動校正至後端失敗：', err)
   } finally {
-    row.standard_name = chosen.standard_name
+    row.standard_name = chosen.factor_name
     row.factor_code = chosen.factor_code
-    row.category = chosen.category
+    row.category = normalizeDisplayCategory(chosen.category, chosen.category_key)
     row.unit_factor = chosen.unit_factor
     row.carbon_kg = newCarbonKg
+    row.hidden_carbon_cost_kg = newHiddenKg
+    row.declared_unit = chosen.declared_unit || '件'
     row.confidence = 1.0
     row.is_estimated = false
     row.factor_source = `${chosen.source}（使用者手動校正）`
+    row.basis = `使用者手動校正為 ${chosen.factor_name}（${chosen.unit_factor} kg CO2e / ${row.declared_unit}）× 數量 ${row.quantity}`
     alignmentCache.clear()
     isCorrecting.value = false
     selectedDetailRow.value = null
@@ -799,6 +792,7 @@ const applyManualCorrection = async () => {
 
 onMounted(async () => {
   switchRangeMode('month')
+  await loadFactorOptions()
   await loadCarbonData()
 })
 </script>
@@ -1179,26 +1173,46 @@ onMounted(async () => {
 }
 
 .detail-table-wrap {
+  width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .carbon-detail-table {
   width: 100%;
+  min-width: 540px;
   border-collapse: collapse;
   font-size: 0.86rem;
 }
 
 .carbon-detail-table th {
   text-align: left;
-  padding: 0.6rem 0.5rem;
+  padding: 0.6rem 0.55rem;
   background-color: #f3f4f6;
   color: #374151;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .carbon-detail-table td {
-  padding: 0.65rem 0.5rem;
+  padding: 0.65rem 0.55rem;
   border-bottom: 1px solid #e5e7eb;
+  vertical-align: middle;
+}
+
+.col-raw {
+  min-width: 120px;
+  word-break: break-word;
+}
+
+.col-std {
+  min-width: 130px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.col-conf {
+  white-space: nowrap;
 }
 
 .clickable-row {
