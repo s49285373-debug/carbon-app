@@ -865,6 +865,58 @@ const mealForm = ref({
   ]
 })
 
+const TRACK_CATEGORY_MAP = {
+  FT: '一般消費',
+  FG: '餐飲消費'
+}
+
+const getTodayFormatted = () => {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  return `${y}/${m}/${d}`
+}
+
+const normalizeDateOnly = (rawVal) => {
+  const str = String(rawVal || '')
+    .trim()
+    .replaceAll('—', '-')
+    .replaceAll('–', '-')
+
+  if (!str) return getTodayFormatted()
+
+  const rocMatch = str.match(/^(\d{2,3})\s*[年/.-]\s*(\d{1,2})\s*[月/.-]\s*(\d{1,2})\s*日?$/)
+  if (rocMatch) {
+    const adYear = Number(rocMatch[1]) + 1911
+    const mm = rocMatch[2].padStart(2, '0')
+    const dd = rocMatch[3].padStart(2, '0')
+    return `${adYear}/${mm}/${dd}`
+  }
+
+  const adMatch = str.match(/^(\d{4})\s*[年/.-]\s*(\d{1,2})\s*[月/.-]\s*(\d{1,2})\s*日?$/)
+  if (adMatch) {
+    const yyyy = adMatch[1]
+    const mm = adMatch[2].padStart(2, '0')
+    const dd = adMatch[3].padStart(2, '0')
+    return `${yyyy}/${mm}/${dd}`
+  }
+
+  return str.slice(0, 10).replaceAll('-', '/')
+}
+
+const formatRocPeriodBadge = (dateStr) => {
+  const match = String(dateStr || '').match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)
+  if (!match) return periods[currentPeriodIndex.value]
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const rocYear = year - 1911
+  const evenEnd = month % 2 === 0 ? month : month + 1
+  const oddStart = evenEnd - 1
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${rocYear}年${pad(oddStart)}–${pad(evenEnd)}月`
+}
+
 const MEAL_STORAGE_KEY_PREFIX = 'carbon_meal_records_'
 const getMealStorageKey = () => `${MEAL_STORAGE_KEY_PREFIX}${userPhone.value || 'guest'}`
 
@@ -889,6 +941,47 @@ const saveMealRecordsLocal = () => {
   }
 }
 
+const generateMealRecordId = () => {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const rand = String(Math.floor(Math.random() * 900) + 100)
+  return `REC${y}${m}${d}${rand}`
+}
+
+const normalizeMealRecord = (raw) => {
+  const rawItems = Array.isArray(raw?.items)
+    ? raw.items
+    : Array.isArray(raw?.ingredients)
+    ? raw.ingredients
+    : []
+
+  const normalizedIngredients = rawItems.map((it) => ({
+    ingredient_name: String(it.ingredient_name || '').trim(),
+    portion_amount: Number(it.portion_amount ?? it.quantity ?? 0),
+    quantity: Number(it.quantity ?? it.portion_amount ?? 0),
+    unit: String(it.unit || 'g').trim(),
+    carbon_kg: Number(it.carbon_kg || 0),
+    factor_name: it.factor_name || null
+  }))
+
+  const createdDate = normalizeDateOnly(raw?.meal_date || raw?.created_date || getTodayFormatted())
+  const recordId = raw?.id ?? raw?.record_id ?? generateMealRecordId()
+
+  return {
+    id: raw?.id ?? null,
+    record_id: recordId,
+    meal_name: String(raw?.meal_name || '').trim(),
+    created_date: createdDate,
+    meal_date: createdDate,
+    carbon_kg: Number(raw?.carbon_kg || 0),
+    hidden_carbon_cost: Number(raw?.hidden_carbon_cost || 0),
+    ingredients: normalizedIngredients,
+    items: normalizedIngredients
+  }
+}
+
 const syncMealsFromCloud = async () => {
   loadMealRecordsLocal()
   if (!userPhone.value) return
@@ -899,7 +992,7 @@ const syncMealsFromCloud = async () => {
     if (!res.ok) return
     const result = await res.json()
     if (result?.status === 'success' && Array.isArray(result.data)) {
-      mealList.value = result.data
+      mealList.value = result.data.map(normalizeMealRecord)
       saveMealRecordsLocal()
     }
   } catch (err) {
@@ -910,27 +1003,43 @@ const syncMealsFromCloud = async () => {
 }
 
 const saveMealToCloud = async (record) => {
-  if (!userPhone.value) return record
+  if (!userPhone.value) {
+    alert('尚未讀取到登入帳號（phone），請重新登入後再試')
+    return null
+  }
   try {
+    const payload = {
+      phone: userPhone.value,
+      meal_name: record.meal_name,
+      meal_date: record.created_date,
+      items: (record.ingredients || []).map((ing) => ({
+        ingredient_name: ing.ingredient_name,
+        quantity: Number(ing.portion_amount || 0),
+        unit: ing.unit === '份' ? '份' : '公克 (g)'
+      }))
+    }
+
     const res = await fetch(`${API_BASE_URL}/api/meals`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        phone: userPhone.value,
-        record_id: record.record_id,
-        meal_name: record.meal_name,
-        created_date: record.created_date,
-        ingredients: record.ingredients
-      })
+      body: JSON.stringify(payload)
     })
-    if (res.ok) {
-      const result = await res.json()
-      return result?.data || record
+
+    const result = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      alert(`儲存餐點失敗（${res.status}）：${result?.detail || '請檢查後端日誌'}`)
+      return null
     }
+
+    if (result?.data) {
+      return normalizeMealRecord(result.data)
+    }
+    return record
   } catch (err) {
-    console.warn('寫入雲端餐點紀錄失敗，保留本地紀錄：', err)
+    console.error('寫入雲端餐點紀錄失敗：', err)
+    alert('無法連線至後端伺服器，餐點尚未存入雲端')
+    return null
   }
-  return record
 }
 
 const openMealTab = () => {
@@ -946,15 +1055,6 @@ const addMealIngredientRow = () => {
     portion_amount: 100,
     unit: 'g'
   })
-}
-
-const generateMealRecordId = () => {
-  const now = new Date()
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  const rand = String(Math.floor(Math.random() * 900) + 100)
-  return `REC${y}${m}${d}${rand}`
 }
 
 const submitMealRecord = async () => {
@@ -988,6 +1088,8 @@ const submitMealRecord = async () => {
     }
 
     const savedRecord = await saveMealToCloud(draftRecord)
+    if (!savedRecord) return
+
     mealList.value.unshift(savedRecord)
     saveMealRecordsLocal()
 
@@ -1007,19 +1109,29 @@ const openMealDetail = (meal) => {
 }
 
 const deleteMealRecord = async (recordId) => {
-  if (userPhone.value && recordId) {
+  const target = mealList.value.find(
+    (item) => item.record_id === recordId || item.id === recordId
+  )
+  const dbId = target?.id ?? recordId
+
+  if (userPhone.value && dbId) {
     try {
       const url = `${API_BASE_URL}/api/meals/${encodeURIComponent(
-        recordId
+        dbId
       )}?phone=${encodeURIComponent(userPhone.value)}`
       await fetch(url, { method: 'DELETE' })
     } catch (err) {
       console.warn('刪除雲端餐點紀錄失敗：', err)
     }
   }
-  mealList.value = mealList.value.filter((item) => item.record_id !== recordId)
+  mealList.value = mealList.value.filter(
+    (item) => item.record_id !== recordId && item.id !== recordId
+  )
   saveMealRecordsLocal()
-  if (selectedMealDetail.value && selectedMealDetail.value.record_id === recordId) {
+  if (
+    selectedMealDetail.value &&
+    (selectedMealDetail.value.record_id === recordId || selectedMealDetail.value.id === recordId)
+  ) {
     selectedMealDetail.value = null
   }
 }
@@ -1035,19 +1147,6 @@ const prevMealPeriod = () => {
 
 const nextMealPeriod = () => {
   if (currentMealPeriodIndex.value < mealPeriods.length - 1) currentMealPeriodIndex.value++
-}
-
-const TRACK_CATEGORY_MAP = {
-  FT: '一般消費',
-  FG: '餐飲消費'
-}
-
-const getTodayFormatted = () => {
-  const now = new Date()
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  return `${y}/${m}/${d}`
 }
 
 const tradEditorForm = ref({
@@ -1092,45 +1191,6 @@ const isSubstantiveProductItem = (item) => {
 
 const getSubstantiveItems = (items = []) => {
   return (Array.isArray(items) ? items : []).filter(isSubstantiveProductItem)
-}
-
-const normalizeDateOnly = (rawVal) => {
-  const str = String(rawVal || '')
-    .trim()
-    .replaceAll('—', '-')
-    .replaceAll('–', '-')
-
-  if (!str) return getTodayFormatted()
-
-  const rocMatch = str.match(/^(\d{2,3})\s*[年/.-]\s*(\d{1,2})\s*[月/.-]\s*(\d{1,2})\s*日?$/)
-  if (rocMatch) {
-    const adYear = Number(rocMatch[1]) + 1911
-    const mm = rocMatch[2].padStart(2, '0')
-    const dd = rocMatch[3].padStart(2, '0')
-    return `${adYear}/${mm}/${dd}`
-  }
-
-  const adMatch = str.match(/^(\d{4})\s*[年/.-]\s*(\d{1,2})\s*[月/.-]\s*(\d{1,2})\s*日?$/)
-  if (adMatch) {
-    const yyyy = adMatch[1]
-    const mm = adMatch[2].padStart(2, '0')
-    const dd = adMatch[3].padStart(2, '0')
-    return `${yyyy}/${mm}/${dd}`
-  }
-
-  return str.slice(0, 10).replaceAll('-', '/')
-}
-
-const formatRocPeriodBadge = (dateStr) => {
-  const match = String(dateStr || '').match(/^(\d{4})[/-](\d{2})[/-](\d{2})/)
-  if (!match) return periods[currentPeriodIndex.value]
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const rocYear = year - 1911
-  const evenEnd = month % 2 === 0 ? month : month + 1
-  const oddStart = evenEnd - 1
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${rocYear}年${pad(oddStart)}–${pad(evenEnd)}月`
 }
 
 const buildSummaryTitle = (items = [], merchantName = '') => {
@@ -2165,13 +2225,22 @@ const carbonCategoryRows = computed(() => {
     const ingList = Array.isArray(meal.ingredients) ? meal.ingredients : []
     for (const ing of ingList) {
       const name = String(ing.ingredient_name || '')
-      const amt = Math.max(0, Number(ing.portion_amount || 0))
-      const factor = ing.unit === 'g' ? amt / 1000 : amt * 0.25
       const cat = classifyCarbonCategory(name)
-      if (cat === 'beverage') {
-        totals.beverage += factor * 1.2
+      const backendKg = Number(ing.carbon_kg || 0)
+      if (backendKg > 0) {
+        if (cat === 'beverage') {
+          totals.beverage += backendKg
+        } else {
+          totals.food += backendKg
+        }
       } else {
-        totals.food += factor * 2.1
+        const amt = Math.max(0, Number(ing.portion_amount || 0))
+        const factor = ing.unit === 'g' || ing.unit === '公克 (g)' ? amt / 1000 : amt * 0.25
+        if (cat === 'beverage') {
+          totals.beverage += factor * 1.2
+        } else {
+          totals.food += factor * 2.1
+        }
       }
     }
   }
