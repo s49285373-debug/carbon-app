@@ -20,7 +20,7 @@
         <section class="banner-card">
           <div class="carbon-summary-board">
             <div class="carbon-board-header">
-              <span>☁️ 本期碳排合計</span>
+              <span class="carbon-board-title">☁️ 累計碳排合計</span>
               <button type="button" class="banner-ledger-btn" @click="$router.push('/ledger')">
                 碳足跡明細 &gt;
               </button>
@@ -28,21 +28,6 @@
             <div class="carbon-total-box">
               <div class="carbon-total-number">{{ totalCarbonKg.toFixed(2) }}</div>
               <div class="carbon-total-unit">Kg CO₂e</div>
-            </div>
-          </div>
-
-          <div class="carbon-category-table">
-            <div class="carbon-table-head">
-              <span>類別</span>
-              <span>碳排量(Kg CO₂e)</span>
-            </div>
-            <div
-              class="carbon-table-row"
-              v-for="row in carbonCategoryRows"
-              :key="row.key"
-            >
-              <span class="carbon-cat-name">{{ row.label }}</span>
-              <span class="carbon-cat-val">{{ row.kg.toFixed(2) }}</span>
             </div>
           </div>
         </section>
@@ -2555,9 +2540,14 @@ const handleLogout = async () => {
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: nowrap;
+}
+
+.carbon-board-title {
   font-size: 1.05rem;
   font-weight: 800;
   color: #ffffff;
+  white-space: nowrap;
 }
 
 .banner-ledger-btn {
@@ -2570,6 +2560,7 @@ const handleLogout = async () => {
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .banner-ledger-btn:hover {
@@ -2597,53 +2588,6 @@ const handleLogout = async () => {
   font-weight: 700;
   color: #ecfdf5;
   margin-top: 0.2rem;
-}
-
-.carbon-category-table {
-  background-color: rgba(2, 44, 34, 0.65);
-  border: 1px solid rgba(167, 243, 208, 0.28);
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-.carbon-table-head {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  background-color: rgba(6, 78, 59, 0.95);
-  color: #a7f3d0;
-  font-size: 0.88rem;
-  font-weight: 700;
-  padding: 0.6rem 1rem;
-  border-bottom: 1px solid rgba(167, 243, 208, 0.22);
-}
-
-.carbon-table-head span:last-child {
-  text-align: right;
-}
-
-.carbon-table-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  padding: 0.65rem 1rem;
-  border-bottom: 1px solid rgba(167, 243, 208, 0.14);
-  font-size: 0.95rem;
-}
-
-.carbon-table-row:last-child {
-  border-bottom: none;
-}
-
-.carbon-cat-name {
-  font-weight: 700;
-  color: #ffffff;
-}
-
-.carbon-cat-val {
-  text-align: right;
-  font-weight: 800;
-  color: #fef08a;
-  font-variant-numeric: tabular-nums;
 }
 
 .section-group {
