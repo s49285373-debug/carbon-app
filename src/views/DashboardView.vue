@@ -43,6 +43,17 @@
           <div class="task-list">
             <div class="task-card">
               <div class="task-info">
+                <div class="task-icon green-bg">🌱</div>
+                <div>
+                  <h4>個人碳帳本與碳排明細</h4>
+                  <p>檢視週／月碳排圖表、用電度數換算與 AI 對齊信心分數</p>
+                </div>
+              </div>
+              <button class="action-plus-btn" @click="$router.push('/ledger')">&gt;</button>
+            </div>
+
+            <div class="task-card">
+              <div class="task-info">
                 <div class="task-icon green-bg">📷</div>
                 <div>
                   <h4>發票掃描</h4>
@@ -693,7 +704,7 @@
         </div>
 
         <div class="detail-meta-box">
-         <p><strong>食材品項數：</strong>{{ selectedMealDetail.ingredients.length }} 項</p>
+          <p><strong>食材品項數：</strong>{{ selectedMealDetail.ingredients.length }} 項</p>
         </div>
 
         <div class="detail-items-section" v-if="selectedMealDetail.ingredients && selectedMealDetail.ingredients.length > 0">
