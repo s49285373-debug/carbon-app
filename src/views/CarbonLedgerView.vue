@@ -41,24 +41,12 @@
         <p v-if="rangeErrorMsg" class="range-error-text">⚠️ {{ rangeErrorMsg }}</p>
       </section>
 
-      <!-- 2. 碳排摘要與生活化指標換算 -->
-      <section class="summary-grid">
+      <!-- 2. 區間總碳排放量摘要 -->
+      <section class="summary-single">
         <div class="kpi-card highlight-green">
           <span class="kpi-label">區間總碳排放量</span>
           <strong class="kpi-value">{{ totalCarbonKg.toFixed(2) }} <small>kg CO₂e</small></strong>
           <span class="kpi-sub">含隱形碳成本 {{ hiddenCarbonKg.toFixed(2) }} kg</span>
-        </div>
-
-        <div class="kpi-card">
-          <span class="kpi-label">相當於家庭用電</span>
-          <strong class="kpi-value">{{ equivalentElectricityKwh }} <small>度</small></strong>
-          <span class="kpi-sub">依經濟部電力排碳係數 0.495 換算</span>
-        </div>
-
-        <div class="kpi-card">
-          <span class="kpi-label">高碳排／待確認品項</span>
-          <strong class="kpi-value">{{ highCarbonCount }} <small>項</small></strong>
-          <span class="kpi-sub">估算品項（信心 &lt; 0.75）：{{ estimatedCount }} 項</span>
         </div>
       </section>
 
@@ -103,70 +91,7 @@
           </div>
         </section>
 
-        <!-- 4. 各週比較長條圖 ＆ 每日趨勢折線圖 -->
-        <section class="chart-card">
-          <div class="card-header-row">
-            <h3>📈 碳排週比較與每日趨勢</h3>
-            <div class="chart-switch">
-              <button
-                :class="{ active: trendChartType === 'bar' }"
-                @click="trendChartType = 'bar'"
-              >
-                各週長條圖
-              </button>
-              <button
-                :class="{ active: trendChartType === 'line' }"
-                @click="trendChartType = 'line'"
-              >
-                每日折線圖
-              </button>
-            </div>
-          </div>
-
-          <div v-if="trendChartType === 'bar'" class="bar-chart-box">
-            <div
-              v-for="w in weeklyComparison"
-              :key="w.label"
-              class="bar-col"
-            >
-              <span class="bar-val">{{ w.kg.toFixed(1) }}</span>
-              <div class="bar-track">
-                <div
-                  class="bar-fill"
-                  :style="{ height: `${w.heightPct}%` }"
-                ></div>
-              </div>
-              <span class="bar-label">{{ w.label }}</span>
-            </div>
-          </div>
-
-          <div v-else class="line-chart-box">
-            <svg viewBox="0 0 360 150" class="trend-svg">
-              <line x1="24" y1="125" x2="345" y2="125" stroke="#d1d5db" stroke-width="1.5" />
-              <line x1="24" y1="15" x2="24" y2="125" stroke="#d1d5db" stroke-width="1.5" />
-              <polyline
-                v-if="dailySvgPoints"
-                fill="none"
-                stroke="#059669"
-                stroke-width="3"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                :points="dailySvgPoints"
-              />
-              <g v-for="(pt, idx) in dailyTrendNodes" :key="idx">
-                <circle :cx="pt.x" :cy="pt.y" r="4.5" fill="#047857" stroke="#ffffff" stroke-width="1.5" />
-                <text :x="pt.x" :y="pt.y - 8" text-anchor="middle" font-size="9" fill="#374151">
-                  {{ pt.kg.toFixed(1) }}
-                </text>
-                <text :x="pt.x" y="140" text-anchor="middle" font-size="9" fill="#6b7280">
-                  {{ pt.shortDate }}
-                </text>
-              </g>
-            </svg>
-          </div>
-        </section>
-
-        <!-- 5. 碳排明細與信心分數列表 -->
+        <!-- 4. 碳排明細與信心分數列表 -->
         <section class="chart-card">
           <div class="card-header-row">
             <h3>🧾 碳排明細與 AI 語意對齊依據</h3>
@@ -293,7 +218,6 @@ const endDate = ref('')
 const rangeErrorMsg = ref('')
 const isLoading = ref(false)
 const isCorrecting = ref(false)
-const trendChartType = ref('bar')
 const onlyLowConfidence = ref(false)
 
 const factorOptions = ref(FALLBACK_FACTOR_OPTIONS)
@@ -650,18 +574,6 @@ const hiddenCarbonKg = computed(() => {
   return Number(sum.toFixed(2))
 })
 
-const equivalentElectricityKwh = computed(() => {
-  return Math.round(totalCarbonKg.value / 0.495)
-})
-
-const highCarbonCount = computed(() => {
-  return filteredCarbonRecords.value.filter((r) => r.carbon_kg >= 1.5).length
-})
-
-const estimatedCount = computed(() => {
-  return filteredCarbonRecords.value.filter((r) => r.confidence < 0.75 || r.is_estimated).length
-})
-
 const categoryBreakdown = computed(() => {
   const palette = {
     食品飲料: '#10b981',
@@ -695,51 +607,6 @@ const donutGradientStyle = computed(() => {
   })
   if (acc === 0) return 'conic-gradient(#e5e7eb 0% 100%)'
   return `conic-gradient(${segments.join(', ')})`
-})
-
-const weeklyComparison = computed(() => {
-  const buckets = [
-    { label: '第1週', kg: 0 },
-    { label: '第2週', kg: 0 },
-    { label: '第3週', kg: 0 },
-    { label: '第4週', kg: 0 },
-    { label: '第5週', kg: 0 }
-  ]
-  filteredCarbonRecords.value.forEach((r) => {
-    const dayNum = Number(r.date.slice(8, 10)) || 1
-    const idx = Math.min(4, Math.floor((dayNum - 1) / 7))
-    buckets[idx].kg = Number((buckets[idx].kg + Number(r.carbon_kg || 0)).toFixed(2))
-  })
-  const maxKg = Math.max(...buckets.map((b) => b.kg), 1)
-  return buckets.map((b) => ({
-    ...b,
-    heightPct: b.kg > 0 ? Math.max(12, Math.round((b.kg / maxKg) * 100)) : 4
-  }))
-})
-
-const dailyTrendNodes = computed(() => {
-  const map = new Map()
-  filteredCarbonRecords.value.forEach((r) => {
-    const prev = map.get(r.date) || 0
-    map.set(r.date, Number((prev + Number(r.carbon_kg || 0)).toFixed(2)))
-  })
-  const sortedDates = Array.from(map.keys()).sort().slice(-7)
-  if (sortedDates.length === 0) return []
-  const values = sortedDates.map((d) => map.get(d))
-  const maxVal = Math.max(...values, 1)
-  const stepX = sortedDates.length > 1 ? 290 / (sortedDates.length - 1) : 0
-
-  return sortedDates.map((d, idx) => ({
-    date: d,
-    shortDate: d.slice(5),
-    kg: map.get(d),
-    x: Math.round(40 + idx * stepX),
-    y: Math.round(115 - (map.get(d) / maxVal) * 85)
-  }))
-})
-
-const dailySvgPoints = computed(() => {
-  return dailyTrendNodes.value.map((n) => `${n.x},${n.y}`).join(' ')
 })
 
 const displayedDetailRows = computed(() => {
@@ -933,25 +800,19 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.85rem;
-}
-
-@media (max-width: 640px) {
-  .summary-grid {
-    grid-template-columns: 1fr;
-  }
+.summary-single {
+  display: block;
 }
 
 .kpi-card {
   background-color: #ffffff;
   border-radius: 18px;
-  padding: 1.1rem;
+  padding: 1.2rem;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  align-items: center;
+  text-align: center;
+  gap: 0.35rem;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.14);
 }
 
@@ -961,24 +822,24 @@ onMounted(async () => {
 }
 
 .kpi-label {
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   color: #4b5563;
   font-weight: 600;
 }
 
 .kpi-value {
-  font-size: 1.45rem;
+  font-size: 1.65rem;
   font-weight: 800;
   color: #065f46;
 }
 
 .kpi-value small {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
 .kpi-sub {
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   color: #6b7280;
 }
 
@@ -1083,84 +944,6 @@ onMounted(async () => {
   font-size: 0.8rem;
   color: #6b7280;
   margin-left: 0.3rem;
-}
-
-.chart-switch {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.chart-switch button {
-  padding: 0.3rem 0.7rem;
-  border-radius: 8px;
-  border: 1px solid #d1d5db;
-  background: #f9fafb;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.chart-switch button.active {
-  background: #059669;
-  color: #ffffff;
-  border-color: #059669;
-}
-
-.bar-chart-box {
-  height: 165px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-around;
-  gap: 0.65rem;
-  padding-top: 1rem;
-}
-
-.bar-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.bar-val {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #374151;
-}
-
-.bar-track {
-  width: 100%;
-  max-width: 44px;
-  height: 110px;
-  background-color: #f3f4f6;
-  border-radius: 8px;
-  display: flex;
-  align-items: flex-end;
-  overflow: hidden;
-}
-
-.bar-fill {
-  width: 100%;
-  background: linear-gradient(180deg, #10b981 0%, #047857 100%);
-  border-radius: 8px 8px 0 0;
-  transition: height 0.3s ease;
-}
-
-.bar-label {
-  font-size: 0.78rem;
-  color: #4b5563;
-  font-weight: 600;
-}
-
-.line-chart-box {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.trend-svg {
-  width: 100%;
-  max-height: 175px;
 }
 
 .only-est-toggle {
