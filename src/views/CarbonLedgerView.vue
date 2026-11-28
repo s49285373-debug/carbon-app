@@ -206,10 +206,10 @@
                   <td>
                     <span
                       class="conf-badge"
-                      :class="row.confidence < 0.75 ? 'is-estimated' : 'is-verified'"
+                      :class="row.confidence < 0.75 || row.is_estimated ? 'is-estimated' : 'is-verified'"
                     >
                       {{ row.confidence.toFixed(2) }}
-                      <template v-if="row.confidence < 0.75"> 估算</template>
+                      <template v-if="row.confidence < 0.75 || row.is_estimated"> 估算</template>
                     </span>
                   </td>
                 </tr>
@@ -233,7 +233,9 @@
           <p><strong>推估碳排量：</strong>{{ selectedDetailRow.carbon_kg.toFixed(4) }} kg CO₂e</p>
           <p>
             <strong>信心分數：</strong>{{ selectedDetailRow.confidence.toFixed(2) }}
-            <span v-if="selectedDetailRow.confidence < 0.75" class="warn-tag">（低於 0.75，目前採類別平均估算）</span>
+            <span v-if="selectedDetailRow.confidence < 0.75 || selectedDetailRow.is_estimated" class="warn-tag">
+              （低於 0.75，目前採類別平均估算）
+            </span>
           </p>
           <p><strong>係數來源：</strong>{{ selectedDetailRow.factor_source }}</p>
         </div>
@@ -253,7 +255,9 @@
 
         <div class="modal-actions">
           <button class="cancel-btn" @click="selectedDetailRow = null">關閉</button>
-          <button class="primary-btn" @click="applyManualCorrection">確認校正</button>
+          <button class="primary-btn" :disabled="isCorrecting" @click="applyManualCorrection">
+            {{ isCorrecting ? '校正中...' : '確認校正' }}
+          </button>
         </div>
       </div>
     </div>
@@ -265,7 +269,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
 
-// 預設對照環境部產品碳足跡常見標準係數庫（前端離線備援與手動校正選項）
+// 手動校正可選的標準碳係數類別（可依後端 /api/carbon/factors 同步調整）
 const STANDARD_FACTOR_OPTIONS = [
   { standard_name: '包裝茶飲料', category: '食品飲料', unit_factor: 0.45, source: '環境部產品碳足跡資訊網（包裝茶飲類）' },
   { standard_name: '含乳冷熱飲品', category: '食品飲料', unit_factor: 1.10, source: '環境部產品碳足跡資訊網（含乳咖啡/奶茶）' },
@@ -285,12 +289,16 @@ const startDate = ref('')
 const endDate = ref('')
 const rangeErrorMsg = ref('')
 const isLoading = ref(false)
+const isCorrecting = ref(false)
 const trendChartType = ref('bar')
 const onlyLowConfidence = ref(false)
 
 const allCarbonRecords = ref([])
 const selectedDetailRow = ref(null)
 const selectedCorrectionKey = ref('')
+
+// 前端記憶體快取：避免同一品項/數量/備援分類短時間重複打 AI 對齊 API
+const alignmentCache = new Map()
 
 watch(selectedDetailRow, (row) => {
   if (row) {
@@ -332,55 +340,125 @@ const applyDateFilter = () => {
   }
 }
 
-// 關鍵字規則語意推估（當後端尚未回傳 AI 對齊欄位時自動補齊）
-const inferSemanticMatch = (rawName, isMealIngredient = false) => {
-  const name = String(rawName || '').trim()
-  if (/牛|steak|漢堡排/.test(name)) {
-    return { ...STANDARD_FACTOR_OPTIONS[3], confidence: 0.89 }
-  }
-  if (/豬|排骨|控肉|培根|火腿/.test(name)) {
-    return { ...STANDARD_FACTOR_OPTIONS[4], confidence: 0.88 }
-  }
-  if (/雞|鴨|鵝|卡啦/.test(name)) {
-    return { ...STANDARD_FACTOR_OPTIONS[5], confidence: 0.86 }
-  }
-  if (/拿鐵|鮮奶|牛奶|奶茶|優酪|豆漿/.test(name)) {
-    return { ...STANDARD_FACTOR_OPTIONS[1], confidence: 0.87 }
-  }
-  if (/茶|紅茶|綠茶|烏龍|青茶|咖啡|美式/.test(name)) {
-    return { ...STANDARD_FACTOR_OPTIONS[0], confidence: 0.92 }
-  }
-  if (/飯|御飯糰|便當|麵|吐司|麵包/.test(name)) {
-    return { ...STANDARD_FACTOR_OPTIONS[2], confidence: 0.81 }
-  }
-  if (/菜|果|沙拉|玉米|地瓜|蛋/.test(name)) {
-    return { ...STANDARD_FACTOR_OPTIONS[6], confidence: 0.84 }
-  }
-  if (/水|礦泉水/.test(name)) {
-    return { ...STANDARD_FACTOR_OPTIONS[7], confidence: 0.91 }
-  }
-  if (/袋|杯|餐具|衛生紙|紙巾/.test(name)) {
-    return { ...STANDARD_FACTOR_OPTIONS[8], confidence: 0.78 }
-  }
-  if (/洗|牙|沐浴|清潔|皂/.test(name)) {
-    return { ...STANDARD_FACTOR_OPTIONS[9], confidence: 0.79 }
-  }
-  return {
-    ...STANDARD_FACTOR_OPTIONS[10],
-    confidence: isMealIngredient ? 0.72 : 0.61
-  }
-}
-
 const normalizeDateDash = (str) => {
   return String(str || '').trim().replaceAll('/', '-').slice(0, 10)
+}
+
+// 排除折扣、折讓與無效金額列
+const isDiscountOrInvalidItem = (item) => {
+  const name = String(item?.item_name || '').trim()
+  const amt = Number(item?.amount || 0)
+  if (!name || amt <= 0) return true
+  if (item?.is_substantive === false) return true
+  return /折扣|折讓|折抵|特價|調整|滿額贈|點數折/.test(name)
+}
+
+// 依品名與店家映射後端 fallback_category_key
+const resolveFallbackCategoryKey = (text = '', defaultKey = 'living') => {
+  const s = String(text || '').toLowerCase()
+  if (/茶|咖啡|拿鐵|奶茶|綠豆沙|可可|飲料|飲品|果汁|汽水|水|豆漿/.test(s)) {
+    return 'beverage'
+  }
+  if (/筆電|手機|耳機|滑鼠|鍵盤|螢幕|充電器|3c|電子|平板|相機/.test(s)) {
+    return 'electronics'
+  }
+  if (/捷運|公車|高鐵|火車|客運|加油|停車|uber|計程車|交通|票/.test(s)) {
+    return 'transport'
+  }
+  if (/便當|餐|飯|麵|肉|蛋|菜|蔬|果|餅乾|麵包|零食|滷味|火鍋|食品|飲料/.test(s)) {
+    return 'food'
+  }
+  return defaultKey
+}
+
+// 將後端回傳的類別 key/label 正規化為圓餅圖三大分類
+const normalizeDisplayCategory = (rawCat = '', fallbackKey = 'living') => {
+  const s = String(rawCat || '').trim().toLowerCase()
+  if (s.includes('食品') || s.includes('飲料') || s.includes('餐飲') || s === 'food' || s === 'beverage') {
+    return '食品飲料'
+  }
+  if (s.includes('包裝') || s.includes('耗材') || s === 'packaging') {
+    return '包裝耗材'
+  }
+  if (s.includes('日用') || s.includes('生活') || s.includes('交通') || s.includes('電子') || s === 'living') {
+    return '日用品'
+  }
+  return fallbackKey === 'food' || fallbackKey === 'beverage' ? '食品飲料' : '日用品'
+}
+
+// 呼叫後端 POST /api/carbon/ai/align-item
+const requestItemAlignment = async ({ itemName, quantity = 1, fallbackCategoryKey = 'food' }) => {
+  const cleanQty = Math.max(0.01, Number(quantity || 1))
+  const cacheKey = `${itemName}__${cleanQty}__${fallbackCategoryKey}`
+  if (alignmentCache.has(cacheKey)) {
+    return alignmentCache.get(cacheKey)
+  }
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/carbon/ai/align-item`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        item_name: itemName,
+        quantity: cleanQty,
+        fallback_category_key: fallbackCategoryKey
+      })
+    })
+
+    if (res.ok) {
+      const data = await res.json()
+      const totalKg = Number(data.total_kg_co2e ?? data.kg_co2e ?? 0)
+      const unitFactor = Number(data.kg_co2e ?? (cleanQty > 0 ? totalKg / cleanQty : 0))
+      const confidence = Number(data.confidence ?? 0)
+      const standardName = data.factor_name || data.standard_name || '一般綜合消費（類別平均）'
+      const factorCode = data.factor_code || null
+      const category = normalizeDisplayCategory(
+        data.category_label || data.category || '',
+        fallbackCategoryKey
+      )
+
+      const mapped = {
+        standard_name: standardName,
+        factor_code: factorCode,
+        category,
+        unit_factor: Number(unitFactor.toFixed(4)),
+        carbon_kg: Number(totalKg.toFixed(4)),
+        confidence,
+        is_estimated: Boolean(data.is_estimated) || confidence < 0.75,
+        factor_source: factorCode
+          ? `環境部／系統碳係數庫（${factorCode}）`
+          : (data.factor_source || '後端語意對齊／類別平均係數')
+      }
+
+      alignmentCache.set(cacheKey, mapped)
+      return mapped
+    }
+  } catch (err) {
+    console.warn('呼叫 /api/carbon/ai/align-item 失敗：', err)
+  }
+
+  // 後端無法連線時的備援（避免整頁空白）
+  const fallbackFactor = 0.75
+  const fallbackResult = {
+    standard_name: '一般綜合消費（類別平均）',
+    factor_code: null,
+    category: normalizeDisplayCategory('', fallbackCategoryKey),
+    unit_factor: fallbackFactor,
+    carbon_kg: Number((cleanQty * fallbackFactor).toFixed(4)),
+    confidence: 0.5,
+    is_estimated: true,
+    factor_source: '前端備援估算（後端暫時無法連線）'
+  }
+  alignmentCache.set(cacheKey, fallbackResult)
+  return fallbackResult
 }
 
 const loadCarbonData = async () => {
   isLoading.value = true
   const phone = (localStorage.getItem('user_phone') || '').trim()
-  const rows = []
+  const alignmentTasks = []
 
-  // 1. 優先嘗試從後端讀取發票明細（含未來 AI 對齊欄位）
+  // 1. 讀取發票明細並逐筆呼叫後端 AI 對齊
   let invoices = []
   if (phone) {
     try {
@@ -391,8 +469,8 @@ const loadCarbonData = async () => {
           invoices = result.data
         }
       }
-    } catch {
-      // 忽略網路例外
+    } catch (err) {
+      console.warn('讀取發票清單失敗：', err)
     }
   }
 
@@ -400,30 +478,38 @@ const loadCarbonData = async () => {
     const dateDash = normalizeDateDash(inv.purchase_date)
     const items = Array.isArray(inv.items) ? inv.items : []
     items.forEach((it, itemIdx) => {
-      const amt = Number(it.amount || 0)
-      if (amt <= 0) return
+      if (isDiscountOrInvalidItem(it)) return
       const qty = Math.max(1, Number(it.quantity || 1))
-      const matched = inferSemanticMatch(it.item_name, false)
-      const unitFactor = Number(it.unit_factor ?? matched.unit_factor)
-      const confidence = Number(it.confidence ?? matched.confidence)
+      const fallbackCatKey = resolveFallbackCategoryKey(
+        `${it.item_name || ''} ${inv.merchant_name || ''} ${inv.category_name || ''}`,
+        'living'
+      )
 
-      rows.push({
-        uid: `inv-${inv.id || invIdx}-${itemIdx}`,
-        date: dateDash,
-        source_badge: '發票',
-        raw_name: it.item_name,
-        quantity: qty,
-        category: it.category || matched.category,
-        standard_name: it.standard_name || matched.standard_name,
-        unit_factor: unitFactor,
-        carbon_kg: Number((qty * unitFactor).toFixed(4)),
-        confidence,
-        factor_source: it.factor_source || matched.source
-      })
+      alignmentTasks.push(
+        requestItemAlignment({
+          itemName: it.item_name,
+          quantity: qty,
+          fallbackCategoryKey: fallbackCatKey
+        }).then((aligned) => ({
+          uid: `inv-${inv.id || invIdx}-${itemIdx}`,
+          date: dateDash,
+          source_badge: inv.invoice_number ? `發票(${inv.invoice_number})` : '發票',
+          raw_name: it.item_name,
+          quantity: qty,
+          category: aligned.category,
+          standard_name: aligned.standard_name,
+          factor_code: aligned.factor_code,
+          unit_factor: aligned.unit_factor,
+          carbon_kg: aligned.carbon_kg,
+          confidence: aligned.confidence,
+          is_estimated: aligned.is_estimated,
+          factor_source: aligned.factor_source
+        }))
+      )
     })
   })
 
-  // 2. 讀取本地餐點紀錄（carbon_meal_records_<phone>）
+  // 2. 讀取餐點食材紀錄並逐筆呼叫後端 AI 對齊
   try {
     const rawMeals = localStorage.getItem(`carbon_meal_records_${phone || 'guest'}`)
     const meals = rawMeals ? JSON.parse(rawMeals) : []
@@ -433,30 +519,39 @@ const loadCarbonData = async () => {
         const ings = Array.isArray(meal.ingredients) ? meal.ingredients : []
         ings.forEach((ing, iIdx) => {
           const portion = Number(ing.portion_amount || 0)
-          if (portion <= 0) return
-          // 若單位為 g，以每 150g 換算為 1 基準份量計算係數
+          if (!ing.ingredient_name || portion <= 0) return
           const equivQty = ing.unit === 'g' ? Number((portion / 150).toFixed(2)) : portion
-          const matched = inferSemanticMatch(ing.ingredient_name, true)
-          rows.push({
-            uid: `meal-${meal.record_id || mIdx}-${iIdx}`,
-            date: dateDash,
-            source_badge: `餐點(${meal.meal_name})`,
-            raw_name: `${ing.ingredient_name} (${portion}${ing.unit})`,
-            quantity: equivQty,
-            category: matched.category,
-            standard_name: matched.standard_name,
-            unit_factor: matched.unit_factor,
-            carbon_kg: Number((equivQty * matched.unit_factor).toFixed(4)),
-            confidence: matched.confidence,
-            factor_source: matched.source
-          })
+          const fallbackCatKey = resolveFallbackCategoryKey(ing.ingredient_name, 'food')
+
+          alignmentTasks.push(
+            requestItemAlignment({
+              itemName: ing.ingredient_name,
+              quantity: equivQty,
+              fallbackCategoryKey: fallbackCatKey
+            }).then((aligned) => ({
+              uid: `meal-${meal.record_id || mIdx}-${iIdx}`,
+              date: dateDash,
+              source_badge: `餐點(${meal.meal_name || '自製'})`,
+              raw_name: `${ing.ingredient_name} (${portion}${ing.unit})`,
+              quantity: equivQty,
+              category: aligned.category,
+              standard_name: aligned.standard_name,
+              factor_code: aligned.factor_code,
+              unit_factor: aligned.unit_factor,
+              carbon_kg: aligned.carbon_kg,
+              confidence: aligned.confidence,
+              is_estimated: aligned.is_estimated,
+              factor_source: aligned.factor_source
+            }))
+          )
         })
       })
     }
-  } catch {
-    // 忽略解析例外
+  } catch (err) {
+    console.warn('讀取餐點紀錄失敗：', err)
   }
 
+  const rows = await Promise.all(alignmentTasks)
   allCarbonRecords.value = rows.sort((a, b) => b.date.localeCompare(a.date))
   isLoading.value = false
 }
@@ -471,7 +566,8 @@ const filteredCarbonRecords = computed(() => {
 })
 
 const totalCarbonKg = computed(() => {
-  return filteredCarbonRecords.value.reduce((sum, r) => sum + Number(r.carbon_kg || 0), 0)
+  const sum = filteredCarbonRecords.value.reduce((sumVal, r) => sumVal + Number(r.carbon_kg || 0), 0)
+  return Number(sum.toFixed(2))
 })
 
 // 隱形碳成本（供應鏈上游間接排放約佔生命週期 34%）
@@ -489,7 +585,7 @@ const highCarbonCount = computed(() => {
 })
 
 const estimatedCount = computed(() => {
-  return filteredCarbonRecords.value.filter((r) => r.confidence < 0.75).length
+  return filteredCarbonRecords.value.filter((r) => r.confidence < 0.75 || r.is_estimated).length
 })
 
 const categoryBreakdown = computed(() => {
@@ -503,13 +599,17 @@ const categoryBreakdown = computed(() => {
     const key = totals[r.category] !== undefined ? r.category : '日用品'
     totals[key] += Number(r.carbon_kg || 0)
   })
-  const grandTotal = Object.values(totals).reduce((a, b) => a + b, 0) || 1
-  return Object.keys(totals).map((name) => ({
-    name,
-    kg: totals[name],
-    percent: Math.round((totals[name] / grandTotal) * 100),
-    color: palette[name]
-  }))
+  const grandTotal = Object.values(totals).reduce((a, b) => a + b, 0)
+  return Object.keys(totals).map((name) => {
+    const kgVal = Number(totals[name].toFixed(2))
+    const pct = grandTotal > 0 ? Number(((totals[name] / grandTotal) * 100).toFixed(1)) : 0
+    return {
+      name,
+      kg: kgVal,
+      percent: pct,
+      color: palette[name]
+    }
+  })
 })
 
 const donutGradientStyle = computed(() => {
@@ -519,6 +619,7 @@ const donutGradientStyle = computed(() => {
     acc += c.percent
     return `${c.color} ${start}% ${acc}%`
   })
+  if (acc === 0) return 'conic-gradient(#e5e7eb 0% 100%)'
   return `conic-gradient(${segments.join(', ')})`
 })
 
@@ -533,19 +634,20 @@ const weeklyComparison = computed(() => {
   filteredCarbonRecords.value.forEach((r) => {
     const dayNum = Number(r.date.slice(8, 10)) || 1
     const idx = Math.min(4, Math.floor((dayNum - 1) / 7))
-    buckets[idx].kg += Number(r.carbon_kg || 0)
+    buckets[idx].kg = Number((buckets[idx].kg + Number(r.carbon_kg || 0)).toFixed(2))
   })
   const maxKg = Math.max(...buckets.map((b) => b.kg), 1)
   return buckets.map((b) => ({
     ...b,
-    heightPct: Math.max(8, Math.round((b.kg / maxKg) * 100))
+    heightPct: b.kg > 0 ? Math.max(12, Math.round((b.kg / maxKg) * 100)) : 4
   }))
 })
 
 const dailyTrendNodes = computed(() => {
   const map = new Map()
   filteredCarbonRecords.value.forEach((r) => {
-    map.set(r.date, (map.get(r.date) || 0) + Number(r.carbon_kg || 0))
+    const prev = map.get(r.date) || 0
+    map.set(r.date, Number((prev + Number(r.carbon_kg || 0)).toFixed(2)))
   })
   const sortedDates = Array.from(map.keys()).sort().slice(-7)
   if (sortedDates.length === 0) return []
@@ -568,25 +670,46 @@ const dailySvgPoints = computed(() => {
 
 const displayedDetailRows = computed(() => {
   if (!onlyLowConfidence.value) return filteredCarbonRecords.value
-  return filteredCarbonRecords.value.filter((r) => r.confidence < 0.75)
+  return filteredCarbonRecords.value.filter((r) => r.confidence < 0.75 || r.is_estimated)
 })
 
-const applyManualCorrection = () => {
-  if (!selectedDetailRow.value) return
+const applyManualCorrection = async () => {
+  if (!selectedDetailRow.value || isCorrecting.value) return
   const chosen = STANDARD_FACTOR_OPTIONS.find(
     (o) => o.standard_name === selectedCorrectionKey.value
   )
   if (!chosen) return
 
-  selectedDetailRow.value.standard_name = chosen.standard_name
-  selectedDetailRow.value.category = chosen.category
-  selectedDetailRow.value.unit_factor = chosen.unit_factor
-  selectedDetailRow.value.carbon_kg = Number(
-    (selectedDetailRow.value.quantity * chosen.unit_factor).toFixed(4)
-  )
-  selectedDetailRow.value.confidence = 1.0
-  selectedDetailRow.value.factor_source = `${chosen.source}（使用者手動校正）`
-  selectedDetailRow.value = null
+  isCorrecting.value = true
+  const row = selectedDetailRow.value
+  const newCarbonKg = Number((row.quantity * chosen.unit_factor).toFixed(4))
+
+  try {
+    // 若後端有提供校正端點則同步寫入，失敗不影響前端畫面更新
+    await fetch(`${API_BASE_URL}/api/carbon/ai/correct`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        raw_name: row.raw_name,
+        corrected_standard_name: chosen.standard_name,
+        corrected_category: chosen.category,
+        corrected_unit_factor: chosen.unit_factor
+      })
+    })
+  } catch {
+    // 忽略未實作或網路例外
+  } finally {
+    row.standard_name = chosen.standard_name
+    row.category = chosen.category
+    row.unit_factor = chosen.unit_factor
+    row.carbon_kg = newCarbonKg
+    row.confidence = 1.0
+    row.is_estimated = false
+    row.factor_source = `${chosen.source}（使用者手動校正）`
+    alignmentCache.clear()
+    isCorrecting.value = false
+    selectedDetailRow.value = null
+  }
 }
 
 onMounted(async () => {
