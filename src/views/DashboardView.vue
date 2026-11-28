@@ -511,13 +511,14 @@
             <div class="official-field">
               <div class="official-label-row">
                 <label class="official-label">
-                  <span>餐點名稱 <span class="official-req">*</span></span>
+                  <span>餐點名稱 <span class="official-req">*</span> <span class="official-count">{{ (mealForm.meal_name || '').length }}/20</span></span>
                 </label>
               </div>
               <input
                 type="text"
                 maxlength="20"
-                v-model="mealForm.meal_name"
+                :value="mealForm.meal_name"
+                @input="mealForm.meal_name = sanitizeMealName($event.target.value)"
                 placeholder="例如：蒜泥白肉套餐"
                 class="official-control"
               />
@@ -535,11 +536,23 @@
                   <span>食材 {{ idx + 1 }}</span>
                 </div>
 
+                <div class="quick-ing-row">
+                  <button
+                    v-for="qName in QUICK_MEAL_INGREDIENTS"
+                    :key="qName"
+                    type="button"
+                    class="quick-ing-chip"
+                    @click="selectQuickIngredient(idx, qName)"
+                  >
+                    {{ qName }}
+                  </button>
+                </div>
+
                 <input
                   type="text"
                   maxlength="30"
                   v-model="ing.ingredient_name"
-                  placeholder="輸入食材（如：國產豬肉、白飯、青菜）"
+                  placeholder="點選上方食材或輸入食材（如：國產豬肉）"
                   class="official-control official-item-name"
                 />
 
@@ -549,7 +562,8 @@
                     step="0.01"
                     min="0.01"
                     v-model.number="ing.portion_amount"
-                    placeholder="份量（如 150 或 1）"
+                    @blur="ing.portion_amount = roundDecimalTwo(ing.portion_amount) || 0.01"
+                    placeholder="150.00"
                     class="official-control"
                   />
                   <select v-model="ing.unit" class="official-control official-select">
@@ -607,7 +621,7 @@
 
                 <div class="meal-record-main">
                   <div class="meal-record-title">{{ meal.meal_name }}</div>
-                  <span class="meal-detail-hint">查看內容 &gt;</span>
+                  <span class="meal-carbon-badge">{{ getMealCarbonDisplay(meal) }} kg CO₂e</span>
                 </div>
 
                 <div class="meal-record-ingredients">
@@ -616,7 +630,7 @@
                     :key="i"
                     class="meal-ing-chip"
                   >
-                    {{ ing.ingredient_name }} {{ ing.portion_amount }}{{ ing.unit }}
+                    {{ ing.ingredient_name }} {{ Number(ing.portion_amount || 0).toFixed(2) }}{{ ing.unit }}
                   </span>
                 </div>
               </div>
@@ -672,10 +686,11 @@
         <div class="detail-top-header">
           <span class="detail-period-badge">{{ formatRocPeriodBadge(selectedMealDetail.created_date || selectedMealDetail.meal_date) }}</span>
           <h4 class="detail-invoice-no">{{ selectedMealDetail.meal_name }}</h4>
-          <p class="detail-date-line">建立日期：{{ selectedMealDetail.created_date || selectedMealDetail.meal_date }}</p>
+          <p class="detail-date-line">記錄編號：{{ selectedMealDetail.record_id || selectedMealDetail.id }} · {{ selectedMealDetail.created_date || selectedMealDetail.meal_date }}</p>
         </div>
 
         <div class="detail-meta-box">
+          <p><strong>碳足跡數值：</strong>{{ getMealCarbonDisplay(selectedMealDetail) }} kg CO₂e</p>
           <p><strong>食材品項數：</strong>{{ (selectedMealDetail.ingredients || []).length }} 項</p>
         </div>
 
@@ -691,7 +706,7 @@
             :key="idx"
           >
             <span class="detail-item-name">{{ ing.ingredient_name }}</span>
-            <span class="detail-item-qty">{{ ing.portion_amount }}</span>
+            <span class="detail-item-qty">{{ Number(ing.portion_amount || 0).toFixed(2) }}</span>
             <span class="detail-item-amt">{{ ing.unit }}</span>
           </div>
         </div>
@@ -821,7 +836,17 @@ const API_BASE_URL = (
 ).replace(/\/+$/, '')
 
 const totalCarbonKg = ref(0)
+const mealCarbonMap = ref({})
 const homeAlignmentCache = new Map()
+
+const QUICK_MEAL_INGREDIENTS = [
+  '國產豬肉',
+  '白飯',
+  '青菜',
+  '雞胸肉',
+  '雞蛋',
+  '豆腐'
+]
 
 const viewportRef = ref(null)
 const videoRef = ref(null)
@@ -871,13 +896,28 @@ const mealList = ref([])
 const mealForm = ref({
   meal_name: '',
   ingredients: [
-    { ingredient_name: '', portion_amount: 150, unit: 'g' }
+    { ingredient_name: '', portion_amount: 150.0, unit: 'g' }
   ]
 })
 
 const TRACK_CATEGORY_MAP = {
   FT: '一般消費',
   FG: '餐飲消費'
+}
+
+const sanitizeMealName = (raw) => {
+  return String(raw || '').replace(/[^\u4e00-\u9fffA-Za-z\s]/g, '').slice(0, 20)
+}
+
+const roundDecimalTwo = (val) => {
+  const num = Number(val)
+  if (!Number.isFinite(num) || num <= 0) return 0
+  return Number(num.toFixed(2))
+}
+
+const selectQuickIngredient = (idx, name) => {
+  if (!Array.isArray(mealForm.value.ingredients) || !mealForm.value.ingredients[idx]) return
+  mealForm.value.ingredients[idx].ingredient_name = String(name || '').slice(0, 30)
 }
 
 const getTodayFormatted = () => {
@@ -946,22 +986,25 @@ const normalizeMealRecord = (raw) => {
 
   const normalizedIngredients = rawItems
     .filter((it) => it && typeof it === 'object')
-    .map((it) => ({
-      ingredient_name: String(it.ingredient_name || '').trim(),
-      portion_amount: Number(it.portion_amount ?? it.quantity ?? 0),
-      quantity: Number(it.quantity ?? it.portion_amount ?? 0),
-      unit: String(it.unit || 'g').trim(),
-      carbon_kg: Number(it.carbon_kg || 0),
-      factor_name: it.factor_name || null
-    }))
+    .map((it) => {
+      const qtyVal = roundDecimalTwo(it.portion_amount ?? it.quantity ?? 0)
+      return {
+        ingredient_name: String(it.ingredient_name || '').trim().slice(0, 30),
+        portion_amount: qtyVal,
+        quantity: qtyVal,
+        unit: String(it.unit || 'g').trim(),
+        carbon_kg: Number(it.carbon_kg || 0),
+        factor_name: it.factor_name || null
+      }
+    })
 
   const createdDate = normalizeDateOnly(safeRaw.meal_date || safeRaw.created_date || getTodayFormatted())
-  const recordId = safeRaw.id ?? safeRaw.record_id ?? generateMealRecordId()
+  const rawRecId = String(safeRaw.record_id || safeRaw.id || generateMealRecordId()).slice(0, 30)
 
   return {
     id: safeRaw.id ?? null,
-    record_id: recordId,
-    meal_name: String(safeRaw.meal_name || '').trim(),
+    record_id: rawRecId,
+    meal_name: sanitizeMealName(safeRaw.meal_name || ''),
     created_date: createdDate,
     meal_date: createdDate,
     carbon_kg: Number(safeRaw.carbon_kg || 0),
@@ -997,7 +1040,10 @@ const saveMealRecordsLocal = () => {
 
 const syncMealsFromCloud = async () => {
   loadMealRecordsLocal()
-  if (!userPhone.value) return
+  if (!userPhone.value) {
+    await refreshMealCarbonMap()
+    return
+  }
   isSyncingMeals.value = true
   try {
     const url = `${API_BASE_URL}/api/meals?phone=${encodeURIComponent(userPhone.value)}`
@@ -1012,6 +1058,7 @@ const syncMealsFromCloud = async () => {
     console.warn('同步雲端餐點紀錄失敗，改用本地快取：', err)
   } finally {
     isSyncingMeals.value = false
+    await refreshMealCarbonMap()
   }
 }
 
@@ -1023,11 +1070,12 @@ const saveMealToCloud = async (record) => {
   try {
     const payload = {
       phone: userPhone.value,
+      record_id: record.record_id,
       meal_name: record.meal_name,
       meal_date: record.created_date,
       items: (record.ingredients || []).map((ing) => ({
         ingredient_name: ing.ingredient_name,
-        quantity: Number(ing.portion_amount || 0),
+        quantity: roundDecimalTwo(ing.portion_amount),
         unit: ing.unit === '份' ? '份' : '公克 (g)'
       }))
     }
@@ -1045,7 +1093,10 @@ const saveMealToCloud = async (record) => {
     }
 
     if (result?.data) {
-      return normalizeMealRecord(result.data)
+      return normalizeMealRecord({
+        ...result.data,
+        record_id: result.data.record_id || record.record_id
+      })
     }
     return normalizeMealRecord(record)
   } catch (err) {
@@ -1068,26 +1119,27 @@ const addMealIngredientRow = () => {
   }
   mealForm.value.ingredients.push({
     ingredient_name: '',
-    portion_amount: 100,
+    portion_amount: 100.0,
     unit: 'g'
   })
 }
 
 const submitMealRecord = async () => {
   if (isSavingMeal.value) return
-  const mealName = String(mealForm.value.meal_name || '').trim()
+  const mealName = sanitizeMealName(mealForm.value.meal_name || '').trim()
+  mealForm.value.meal_name = mealName
   if (!mealName) {
-    alert('請輸入餐點名稱（最多 20 字元）')
+    alert('請輸入餐點名稱（限中英文字元，最多 20 字元）')
     return
   }
 
   const validIngredients = (Array.isArray(mealForm.value.ingredients) ? mealForm.value.ingredients : [])
     .map((ing) => ({
-      ingredient_name: String(ing?.ingredient_name || '').trim(),
-      portion_amount: Number(ing?.portion_amount || 0),
+      ingredient_name: String(ing?.ingredient_name || '').trim().slice(0, 30),
+      portion_amount: roundDecimalTwo(ing?.portion_amount),
       unit: ing?.unit === '份' ? '份' : 'g'
     }))
-    .filter((ing) => ing.ingredient_name && Number.isFinite(ing.portion_amount) && ing.portion_amount > 0)
+    .filter((ing) => ing.ingredient_name && ing.portion_amount > 0)
 
   if (validIngredients.length === 0) {
     alert('請至少輸入一項食材品項，且食用份量需大於 0')
@@ -1098,7 +1150,7 @@ const submitMealRecord = async () => {
   try {
     const draftRecord = {
       record_id: generateMealRecordId(),
-      meal_name: mealName.slice(0, 20),
+      meal_name: mealName,
       created_date: getTodayFormatted(),
       ingredients: validIngredients
     }
@@ -1108,11 +1160,12 @@ const submitMealRecord = async () => {
 
     mealList.value.unshift(savedRecord)
     saveMealRecordsLocal()
+    await refreshMealCarbonMap()
     await refreshTotalCarbonKg()
 
     mealForm.value = {
       meal_name: '',
-      ingredients: [{ ingredient_name: '', portion_amount: 150, unit: 'g' }]
+      ingredients: [{ ingredient_name: '', portion_amount: 150.0, unit: 'g' }]
     }
 
     currentTab.value = 'meals'
@@ -1145,6 +1198,7 @@ const deleteMealRecord = async (recordId) => {
     (item) => item.record_id !== recordId && item.id !== recordId
   )
   saveMealRecordsLocal()
+  await refreshMealCarbonMap()
   await refreshTotalCarbonKg()
   if (
     selectedMealDetail.value &&
@@ -2222,6 +2276,53 @@ const fetchAlignedItemKg = async (itemName, quantity = 1, fallbackCategoryKey = 
   return 0
 }
 
+const computeSingleMealCarbonKg = async (meal) => {
+  if (!meal || typeof meal !== 'object') return 0
+  if (Number(meal.carbon_kg || 0) > 0) {
+    return Number(Number(meal.carbon_kg).toFixed(2))
+  }
+  const ings = Array.isArray(meal.ingredients) ? meal.ingredients : []
+  if (ings.length === 0) return 0
+
+  const values = await Promise.all(
+    ings.map((ing) => {
+      const portion = Number(ing?.portion_amount || 0)
+      if (!ing?.ingredient_name || portion <= 0) return Promise.resolve(0)
+      const { queryName, queryQty } = buildIngredientQuery(
+        ing.ingredient_name,
+        portion,
+        ing.unit || 'g'
+      )
+      const cat = classifyCarbonCategory(ing.ingredient_name)
+      return fetchAlignedItemKg(queryName, queryQty, cat)
+    })
+  )
+
+  const sum = values.reduce((acc, v) => acc + Number(v || 0), 0)
+  return Number(sum.toFixed(2))
+}
+
+const refreshMealCarbonMap = async () => {
+  const safeMeals = Array.isArray(mealList.value) ? mealList.value : []
+  const nextMap = { ...mealCarbonMap.value }
+  await Promise.all(
+    safeMeals.map(async (meal) => {
+      const key = String(meal.record_id ?? meal.id ?? meal.meal_name)
+      nextMap[key] = await computeSingleMealCarbonKg(meal)
+    })
+  )
+  mealCarbonMap.value = nextMap
+}
+
+const getMealCarbonDisplay = (meal) => {
+  const key = String(meal?.record_id ?? meal?.id ?? meal?.meal_name ?? '')
+  const val = mealCarbonMap.value[key]
+  if (typeof val === 'number' && !Number.isNaN(val)) {
+    return val.toFixed(2)
+  }
+  return Number(meal?.carbon_kg || 0).toFixed(2)
+}
+
 const refreshTotalCarbonKg = async () => {
   const tasks = []
 
@@ -2856,11 +2957,15 @@ const handleLogout = async () => {
   color: #111827;
 }
 
-.meal-detail-hint {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: #047857;
+.meal-carbon-badge {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #065f46;
+  background-color: #d1fae5;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .meal-record-ingredients {
@@ -3982,6 +4087,29 @@ input:checked + .slider:before { transform: translateX(20px); }
   font-size: 0.88rem;
   font-weight: 600;
   color: #4b5563;
+}
+
+.quick-ing-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.quick-ing-chip {
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #374151;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.quick-ing-chip:hover {
+  background-color: #d1fae5;
+  border-color: #059669;
+  color: #065f46;
 }
 
 .official-item-del {
