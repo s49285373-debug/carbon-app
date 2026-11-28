@@ -18,22 +18,31 @@
       <!-- 1. 【首頁】分頁內容 -->
       <template v-if="currentTab === 'home'">
         <section class="banner-card">
-          <div class="banner-content">
-            <h2>🧾 發票與消費紀錄帳本</h2>
-            <p>快速掃描電子發票證明聯 QR Code 或手動登錄傳統發票／消費明細，輕鬆管理每筆消費紀錄與金額。</p>
+          <div class="carbon-summary-board">
+            <div class="carbon-board-header">
+              <span>☁️ 本期碳排合計</span>
+              <button type="button" class="banner-ledger-btn" @click="$router.push('/ledger')">
+                碳足跡明細 &gt;
+              </button>
+            </div>
+            <div class="carbon-total-box">
+              <div class="carbon-total-number">{{ totalCarbonKg.toFixed(2) }}</div>
+              <div class="carbon-total-unit">Kg CO₂e</div>
+            </div>
           </div>
-          <div class="banner-stats">
-            <div class="mini-stat">
-              <span class="stat-num">{{ invoiceList.length }}</span>
-              <span class="stat-label">已登錄發票 (筆)</span>
+
+          <div class="carbon-category-table">
+            <div class="carbon-table-head">
+              <span>類別</span>
+              <span>碳排量(Kg CO₂e)</span>
             </div>
-            <div class="mini-stat">
-              <span class="stat-num">TWD {{ totalAmountSum.toLocaleString() }}</span>
-              <span class="stat-label">累積消費金額</span>
-            </div>
-            <div class="mini-stat">
-              <span class="stat-num">{{ totalItemsSum }}</span>
-              <span class="stat-label">累積商品品項</span>
+            <div
+              class="carbon-table-row"
+              v-for="row in carbonCategoryRows"
+              :key="row.key"
+            >
+              <span class="carbon-cat-name">{{ row.label }}</span>
+              <span class="carbon-cat-val">{{ row.kg.toFixed(2) }}</span>
             </div>
           </div>
         </section>
@@ -2086,7 +2095,7 @@ watch(currentTab, async (newTab, oldTab) => {
     if (newTab === 'invoices' || newTab === 'home') {
       await syncInvoicesFromCloud()
     }
-    if (newTab === 'meals') {
+    if (newTab === 'meals' || newTab === 'home') {
       await syncMealsFromCloud()
     }
   }
@@ -2140,12 +2149,82 @@ const deleteInvoice = async (targetId) => {
   }
 }
 
-const totalAmountSum = computed(() => {
-  return invoiceList.value.reduce((acc, item) => acc + Number(item.total_amount || 0), 0)
+const classifyCarbonCategory = (text = '') => {
+  const s = String(text || '').toLowerCase()
+  if (/茶|咖啡|拿鐵|奶茶|綠豆沙|可可|飲料|飲品|果汁|汽水|水|豆漿/.test(s)) {
+    return 'beverage'
+  }
+  if (/筆電|手機|耳機|滑鼠|鍵盤|螢幕|充電器|3c|電子|平板|相機/.test(s)) {
+    return 'electronics'
+  }
+  if (/捷運|公車|高鐵|火車|客運|加油|停車|uber|計程車|交通|票/.test(s)) {
+    return 'transport'
+  }
+  if (/便當|餐|飯|麵|肉|蛋|菜|蔬|果|餅乾|麵包|零食|滷味|火鍋/.test(s)) {
+    return 'food'
+  }
+  return 'living'
+}
+
+const carbonCategoryRows = computed(() => {
+  const totals = {
+    utility: 0,
+    food: 0,
+    beverage: 0,
+    living: 0,
+    transport: 0,
+    electronics: 0
+  }
+
+  for (const meal of mealList.value) {
+    const ingList = Array.isArray(meal.ingredients) ? meal.ingredients : []
+    for (const ing of ingList) {
+      const name = String(ing.ingredient_name || '')
+      const amt = Math.max(0, Number(ing.portion_amount || 0))
+      const factor = ing.unit === 'g' ? amt / 1000 : amt * 0.25
+      const cat = classifyCarbonCategory(name)
+      if (cat === 'beverage') {
+        totals.beverage += factor * 1.2
+      } else {
+        totals.food += factor * 2.1
+      }
+    }
+  }
+
+  for (const inv of invoiceList.value) {
+    const invNum = String(inv.invoice_number || '').toUpperCase()
+    const items = getSubstantiveItems(inv.items)
+    if (items.length > 0) {
+      for (const it of items) {
+        const cat = classifyCarbonCategory(`${it.item_name || ''} ${inv.merchant_name || ''}`)
+        const estKg = (Math.max(0, Number(it.amount || 0)) / 100) * 0.35
+        totals[cat] += estKg
+      }
+    } else {
+      const fallbackAmt = Math.max(0, Number(inv.total_amount || 0))
+      const estKg = (fallbackAmt / 100) * 0.35
+      if (invNum.startsWith('FG')) {
+        totals.food += estKg
+      } else {
+        const cat = classifyCarbonCategory(inv.merchant_name || '')
+        totals[cat] += estKg
+      }
+    }
+  }
+
+  return [
+    { key: 'utility', label: '水電瓦斯', kg: Number(totals.utility.toFixed(2)) },
+    { key: 'food', label: '餐飲食物', kg: Number(totals.food.toFixed(2)) },
+    { key: 'beverage', label: '樂活飲品', kg: Number(totals.beverage.toFixed(2)) },
+    { key: 'living', label: '生活民生', kg: Number(totals.living.toFixed(2)) },
+    { key: 'transport', label: '運輸交通', kg: Number(totals.transport.toFixed(2)) },
+    { key: 'electronics', label: '電子產品', kg: Number(totals.electronics.toFixed(2)) }
+  ]
 })
 
-const totalItemsSum = computed(() => {
-  return invoiceList.value.reduce((acc, item) => acc + getSubstantiveItems(item.items).length, 0)
+const totalCarbonKg = computed(() => {
+  const sum = carbonCategoryRows.value.reduce((acc, row) => acc + Number(row.kg || 0), 0)
+  return Number(sum.toFixed(2))
 })
 
 const sourceFilterLabel = computed(() => {
@@ -2453,54 +2532,118 @@ const handleLogout = async () => {
   background: linear-gradient(135deg, #047857 0%, #065f46 100%);
   border: 1px solid #10b981;
   border-radius: 24px;
-  padding: 2rem;
+  padding: 1.35rem;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1rem;
   box-sizing: border-box;
 }
 
-.banner-content h2 {
-  font-size: 1.4rem;
-  color: #ffffff;
-  margin: 0 0 0.5rem 0;
-}
-
-.banner-content p {
-  font-size: 0.95rem;
-  color: #a7f3d0;
-  margin: 0;
-  line-height: 1.5;
-}
-
-.banner-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1rem;
-  background-color: rgba(2, 44, 34, 0.5);
-  padding: 1rem;
-  border-radius: 16px;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.mini-stat {
+.carbon-summary-board {
+  background-color: rgba(2, 44, 34, 0.55);
+  border: 1px solid rgba(167, 243, 208, 0.3);
+  border-radius: 18px;
+  padding: 1rem 1.15rem 1.2rem 1.15rem;
   display: flex;
   flex-direction: column;
+  gap: 0.75rem;
+}
+
+.carbon-board-header {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
+  gap: 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.banner-ledger-btn {
+  background-color: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  border: 1px solid rgba(167, 243, 208, 0.45);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.banner-ledger-btn:hover {
+  background-color: rgba(255, 255, 255, 0.24);
+}
+
+.carbon-total-box {
+  background-color: #059669;
+  border: 1px solid #34d399;
+  border-radius: 14px;
+  padding: 0.9rem 1rem;
   text-align: center;
 }
 
-.stat-num {
-  font-size: 1.25rem;
-  font-weight: bold;
+.carbon-total-number {
+  font-size: 2.25rem;
+  font-weight: 900;
+  color: #fde047;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.carbon-total-unit {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #ecfdf5;
+  margin-top: 0.2rem;
+}
+
+.carbon-category-table {
+  background-color: rgba(2, 44, 34, 0.65);
+  border: 1px solid rgba(167, 243, 208, 0.28);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.carbon-table-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background-color: rgba(6, 78, 59, 0.95);
+  color: #a7f3d0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid rgba(167, 243, 208, 0.22);
+}
+
+.carbon-table-head span:last-child {
+  text-align: right;
+}
+
+.carbon-table-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid rgba(167, 243, 208, 0.14);
+  font-size: 0.95rem;
+}
+
+.carbon-table-row:last-child {
+  border-bottom: none;
+}
+
+.carbon-cat-name {
+  font-weight: 700;
   color: #ffffff;
 }
 
-.stat-label {
-  font-size: 0.75rem;
-  color: #6ee7b7;
-  margin-top: 0.2rem;
+.carbon-cat-val {
+  text-align: right;
+  font-weight: 800;
+  color: #fef08a;
+  font-variant-numeric: tabular-nums;
 }
 
 .section-group {
