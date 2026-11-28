@@ -3,13 +3,15 @@ import LoginView from '../views/LoginView.vue'
 import RegisterView from '../views/RegisterView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import MemberView from '../views/MemberView.vue' // 1. 引入會員設定頁面
+import CarbonLedgerView from '../views/CarbonLedgerView.vue' // 2. 引入個人碳帳本頁面
 
 const routes = [
   { path: '/', redirect: '/login' },
   { path: '/login', component: LoginView },
   { path: '/register', component: RegisterView },
   { path: '/dashboard', component: DashboardView },
-  { path: '/member', component: MemberView } // 2. 註冊會員設定頁面路由
+  { path: '/member', component: MemberView }, // 3. 註冊會員設定頁面路由
+  { path: '/ledger', component: CarbonLedgerView } // 4. 註冊個人碳帳本頁面路由
 ]
 
 const router = createRouter({
