@@ -43,17 +43,6 @@
           <div class="task-list">
             <div class="task-card">
               <div class="task-info">
-                <div class="task-icon green-bg">🌱</div>
-                <div>
-                  <h4>個人碳帳本與碳排明細</h4>
-                  <p>檢視週／月碳排圖表、用電度數換算與 AI 對齊信心分數</p>
-                </div>
-              </div>
-              <button class="action-plus-btn" @click="$router.push('/ledger')">&gt;</button>
-            </div>
-
-            <div class="task-card">
-              <div class="task-info">
                 <div class="task-icon green-bg">📷</div>
                 <div>
                   <h4>發票掃描</h4>
@@ -83,17 +72,6 @@
                 </div>
               </div>
               <button class="action-plus-btn" @click="openMealTab">+</button>
-            </div>
-
-            <div class="task-card">
-              <div class="task-info">
-                <div class="task-icon blue-bg">📒</div>
-                <div>
-                  <h4>檢視發票存摺明細</h4>
-                  <p>瀏覽所有已擷取的發票品項、金額與來源紀錄</p>
-                </div>
-              </div>
-              <button class="action-plus-btn" @click="currentTab = 'invoices'">&gt;</button>
             </div>
           </div>
         </section>
@@ -813,6 +791,10 @@
       <div class="nav-item" :class="{ active: currentTab === 'meals' }" @click="currentTab = 'meals'">
         <span class="nav-icon">🍱</span>
         <span class="nav-label">餐點</span>
+      </div>
+      <div class="nav-item" @click="$router.push('/ledger')">
+        <span class="nav-icon">🌱</span>
+        <span class="nav-label">碳足跡</span>
       </div>
       <div class="nav-item" :class="{ active: currentTab === 'member' }" @click="currentTab = 'member'">
         <span class="nav-icon">👤</span>
@@ -2583,7 +2565,6 @@ const handleLogout = async () => {
 
 .green-bg { background-color: #d1fae5; }
 .purple-bg { background-color: #ede9fe; }
-.blue-bg { background-color: #e0f2fe; }
 .yellow-bg { background-color: #fef9c3; }
 
 .task-info h4 {
